@@ -330,8 +330,31 @@ async function refresh() {
 
 // --- symbol autocomplete ----------------------------------------------------
 
+// Map browser locale -> Yahoo Finance lang/region pair.
+function detectYahooLocale() {
+  const raw = (navigator.language || "en-US").toLowerCase();
+  if (raw.startsWith("zh-tw") || raw === "zh-hant" || raw.startsWith("zh-hant")) return { lang: "zh-TW", region: "TW" };
+  if (raw.startsWith("zh-hk")) return { lang: "zh-HK", region: "HK" };
+  if (raw.startsWith("zh-cn") || raw.startsWith("zh-hans") || raw === "zh") return { lang: "zh-CN", region: "CN" };
+  if (raw.startsWith("ja")) return { lang: "ja-JP", region: "JP" };
+  if (raw.startsWith("ko")) return { lang: "ko-KR", region: "KR" };
+  if (raw.startsWith("de")) return { lang: "de-DE", region: "DE" };
+  if (raw.startsWith("fr")) return { lang: "fr-FR", region: "FR" };
+  if (raw.startsWith("es")) return { lang: "es-ES", region: "ES" };
+  if (raw.startsWith("pt-br")) return { lang: "pt-BR", region: "BR" };
+  return { lang: "en-US", region: "US" };
+}
+
+const HAS_CJK = /[㐀-鿿぀-ヿ가-힯]/;
+
 async function searchYahooSymbols(query) {
-  const target = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`;
+  const browserLoc = detectYahooLocale();
+  // If the query contains CJK characters, force a CJK locale so Yahoo
+  // returns Asian-listed stocks (e.g. typing 台 should surface 2330.TW 台積電).
+  const loc = HAS_CJK.test(query) && browserLoc.lang === "en-US"
+    ? { lang: "zh-TW", region: "TW" }
+    : browserLoc;
+  const target = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&lang=${loc.lang}&region=${loc.region}`;
   const fetchers = [() => fetch(target), ...CORS_PROXIES.map((p) => () => fetch(p(target)))];
   for (const get of fetchers) {
     try {
