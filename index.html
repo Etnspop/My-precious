@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>My Precious — Portfolio Tracker</title>
+  <meta name="theme-color" content="#0e1116" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Precious" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="./icon-192.png" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◆</span>
+      <h1>My Precious</h1>
+    </div>
+    <div class="topbar-actions">
+      <button id="refresh-btn" class="btn ghost" title="Refresh prices">↻</button>
+      <button id="menu-btn" class="btn ghost" title="Menu">⋯</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="summary">
+      <div class="card big">
+        <span class="label">Net Worth</span>
+        <span id="net-worth" class="value">—</span>
+        <span id="net-gain" class="sub"></span>
+      </div>
+      <div class="card">
+        <span class="label">Invested</span>
+        <span id="invested" class="value small">—</span>
+      </div>
+      <div class="card">
+        <span class="label">Total Gain</span>
+        <span id="total-gain" class="value small">—</span>
+      </div>
+      <div class="card breakdown">
+        <span class="label">Allocation</span>
+        <div id="breakdown" class="bars"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Holdings</h2>
+        <button id="add-btn" class="btn primary">+ Add holding</button>
+      </div>
+      <div class="table-wrap">
+        <table id="holdings-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Type</th>
+              <th class="num">Qty</th>
+              <th class="num">Avg cost</th>
+              <th class="num">Price</th>
+              <th class="num">Value</th>
+              <th class="num">Gain</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="holdings-body">
+            <tr><td colspan="8" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-card">
+      <h3 id="modal-title">Add holding</h3>
+      <form id="holding-form">
+        <input type="hidden" id="f-id" />
+        <label>Symbol
+          <input id="f-symbol" required placeholder="AAPL, BTC, VTI…" autocomplete="off" autocapitalize="characters" />
+        </label>
+        <label>Asset type
+          <select id="f-type" required>
+            <option value="stock">Stock</option>
+            <option value="etf">ETF</option>
+            <option value="crypto">Crypto</option>
+            <option value="cash">Cash</option>
+          </select>
+        </label>
+        <label>Quantity
+          <input id="f-qty" type="number" step="any" min="0" required inputmode="decimal" />
+        </label>
+        <label>Avg cost / unit
+          <input id="f-cost" type="number" step="any" min="0" value="0" inputmode="decimal" />
+        </label>
+        <label>Currency
+          <input id="f-currency" value="USD" maxlength="6" autocapitalize="characters" />
+        </label>
+        <label>Note
+          <input id="f-note" placeholder="Optional" />
+        </label>
+        <div id="form-error" class="error"></div>
+        <div class="actions">
+          <button type="button" id="cancel-btn" class="btn ghost">Cancel</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="menu" class="modal hidden">
+    <div class="modal-card">
+      <h3>Menu</h3>
+      <div class="menu-list">
+        <button id="export-btn" class="btn block ghost">Export portfolio (JSON)</button>
+        <button id="import-btn" class="btn block ghost">Import portfolio (JSON)</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden />
+        <button id="clear-btn" class="btn block ghost danger">Clear all holdings…</button>
+      </div>
+      <p class="muted small">Your portfolio is stored only in this browser. Use export to back it up or move it to another device.</p>
+      <div class="actions">
+        <button type="button" id="menu-close" class="btn primary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <small>Prices via Binance &amp; Yahoo Finance · all data stays on your device</small>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
