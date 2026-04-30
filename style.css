@@ -160,6 +160,63 @@ tbody tr:hover { background: var(--panel-2); }
 .modal-card h3 { margin: 0 0 16px; }
 .modal-card form { display: flex; flex-direction: column; gap: 12px; }
 .modal-card label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: var(--muted); }
+.symbol-field { position: relative; }
+.suggestions {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 4px 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  box-shadow: var(--shadow);
+}
+.suggestions.hidden { display: none; }
+.suggestions li {
+  padding: 9px 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.suggestions li:active, .suggestions li.active { background: var(--panel-2); }
+.suggestions li .sym { font-weight: 600; flex-shrink: 0; }
+.suggestions li .meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.suggestions li .badge {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.suggestions li.empty {
+  color: var(--muted);
+  font-style: italic;
+  cursor: default;
+  justify-content: center;
+}
+.suggestions li.empty:active { background: transparent; }
 .modal-card input, .modal-card select {
   background: var(--bg);
   border: 1px solid var(--border);

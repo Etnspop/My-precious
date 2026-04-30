@@ -4,7 +4,7 @@
 // Bump CACHE on each deploy and bump the ?v= query string in index.html on
 // any change to app.js or style.css. The query string makes the new asset
 // URL distinct, so the old cache entry can't satisfy the new request.
-const CACHE = "myprecious-v6";
+const CACHE = "myprecious-v7";
 const SHELL = [
   "./",
   "./index.html",

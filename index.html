@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <link rel="icon" type="image/png" href="./icon-192.png" />
   <link rel="manifest" href="./manifest.json" />
-  <link rel="stylesheet" href="./style.css?v=6" />
+  <link rel="stylesheet" href="./style.css?v=7" />
 </head>
 <body>
   <header class="topbar">
@@ -79,8 +79,9 @@
       <h3 id="modal-title">Add holding</h3>
       <form id="holding-form">
         <input type="hidden" id="f-id" />
-        <label>Symbol
+        <label class="symbol-field">Symbol
           <input id="f-symbol" required placeholder="AAPL, BTC, VTI…" autocomplete="off" autocapitalize="characters" />
+          <ul id="symbol-suggestions" class="suggestions hidden" role="listbox"></ul>
         </label>
         <label>Asset type
           <select id="f-type" required>
@@ -137,6 +138,6 @@
     <small>Prices via Binance &amp; Yahoo Finance · all data stays on your device</small>
   </footer>
 
-  <script src="./app.js?v=6"></script>
+  <script src="./app.js?v=7"></script>
 </body>
 </html>
