@@ -2,7 +2,9 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - claude/portfolio-tracker-app-SX7rU
   workflow_dispatch:
 
 permissions:
