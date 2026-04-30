@@ -112,32 +112,50 @@ async function fetchCryptoPrice(symbol) {
   return null;
 }
 
+// Public CORS proxies — used as fallbacks when source APIs reject browser
+// requests (Yahoo, Stooq currently strip CORS for most origins). Tried in
+// order; the first one that returns a usable price wins.
+const CORS_PROXIES = [
+  (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+  (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`,
+];
+
+async function fetchYahooPrice(symbol, viaProxy) {
+  const target = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
+  const url = viaProxy ? viaProxy(target) : target;
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  const data = await r.json();
+  const meta = data?.chart?.result?.[0]?.meta;
+  const p = meta?.regularMarketPrice ?? meta?.previousClose;
+  return typeof p === "number" ? p : null;
+}
+
+async function fetchStooqPrice(symbol, viaProxy) {
+  const ticker = symbol.toLowerCase().includes(".") ? symbol.toLowerCase() : `${symbol.toLowerCase()}.us`;
+  const target = `https://stooq.com/q/l/?s=${ticker}&f=sd2t2c&h&e=csv`;
+  const url = viaProxy ? viaProxy(target) : target;
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  const text = await r.text();
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return null;
+  const cols = lines[1].split(",");
+  const close = parseFloat(cols[cols.length - 1]);
+  return !isNaN(close) && close > 0 ? close : null;
+}
+
 async function fetchStockPrice(symbol) {
-  // Yahoo's chart endpoint allows CORS for most listed symbols.
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
-    const r = await fetch(url);
-    if (r.ok) {
-      const data = await r.json();
-      const meta = data?.chart?.result?.[0]?.meta;
-      const p = meta?.regularMarketPrice ?? meta?.previousClose;
-      if (typeof p === "number") return p;
-    }
-  } catch {}
-  // Stooq fallback (free, no key, CSV).
-  try {
-    const ticker = symbol.toLowerCase().includes(".") ? symbol.toLowerCase() : `${symbol.toLowerCase()}.us`;
-    const r = await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(ticker)}&f=sd2t2c&h&e=csv`);
-    if (r.ok) {
-      const text = await r.text();
-      const lines = text.trim().split(/\r?\n/);
-      if (lines.length >= 2) {
-        const cols = lines[1].split(",");
-        const close = parseFloat(cols[cols.length - 1]);
-        if (!isNaN(close) && close > 0) return close;
-      }
-    }
-  } catch {}
+  // 1) Direct Yahoo (works in some browsers/regions/times)
+  try { const p = await fetchYahooPrice(symbol, null); if (p !== null) return p; } catch {}
+  // 2) Direct Stooq
+  try { const p = await fetchStooqPrice(symbol, null); if (p !== null) return p; } catch {}
+  // 3) Through public CORS proxies (Yahoo first since it has fresher data)
+  for (const proxy of CORS_PROXIES) {
+    try { const p = await fetchYahooPrice(symbol, proxy); if (p !== null) return p; } catch {}
+    try { const p = await fetchStooqPrice(symbol, proxy); if (p !== null) return p; } catch {}
+  }
   return null;
 }
 
