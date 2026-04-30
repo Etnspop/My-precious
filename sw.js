@@ -1,7 +1,7 @@
 // Service worker scope is determined by the path this file is served from,
 // so paths here are resolved relative to it (works whether the site is at
 // /  or  /<repo-name>/  on GitHub Pages).
-const CACHE = "myprecious-v2";
+const CACHE = "myprecious-v3";
 const SHELL = [
   "./",
   "./index.html",
