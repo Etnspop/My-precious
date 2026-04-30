@@ -1,12 +1,15 @@
 // Service worker scope is determined by the path this file is served from,
 // so paths here are resolved relative to it (works whether the site is at
 // /  or  /<repo-name>/  on GitHub Pages).
-const CACHE = "myprecious-v5";
+// Bump CACHE on each deploy and bump the ?v= query string in index.html on
+// any change to app.js or style.css. The query string makes the new asset
+// URL distinct, so the old cache entry can't satisfy the new request.
+const CACHE = "myprecious-v6";
 const SHELL = [
   "./",
   "./index.html",
-  "./style.css",
-  "./app.js",
+  "./style.css?v=6",
+  "./app.js?v=6",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",
