@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Sign in — My Precious</title>
+  <meta name="theme-color" content="#0e1116" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Precious" />
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}" />
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body class="login-page">
+  <main class="login-wrap">
+    <div class="login-card">
+      <div class="brand center">
+        <span class="logo">◆</span>
+        <h1>My Precious</h1>
+      </div>
+      <p class="muted center">Enter your password to continue.</p>
+      <form method="POST" autocomplete="off">
+        <label>Password
+          <input type="password" name="password" autofocus required />
+        </label>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        <button type="submit" class="btn primary block">Sign in</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>

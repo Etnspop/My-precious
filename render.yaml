@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: my-precious
+    runtime: python
+    plan: starter   # free tier has no persistent disk; starter is needed for SQLite to survive restarts
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: PORTFOLIO_PASSWORD
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FORCE_HTTPS
+        value: "true"
+      - key: PORTFOLIO_DB
+        value: /var/data/portfolio.db
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1

@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>My Precious — Portfolio Tracker</title>
+  <meta name="theme-color" content="#0e1116" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Precious" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}" />
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='icon-192.png') }}" />
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
@@ -12,7 +20,10 @@
       <span class="logo">◆</span>
       <h1>My Precious</h1>
     </div>
-    <button id="refresh-btn" class="btn ghost" title="Refresh prices">↻ Refresh</button>
+    <div class="topbar-actions">
+      <button id="refresh-btn" class="btn ghost" title="Refresh prices">↻</button>
+      {% if auth_enabled %}<a href="/logout" class="btn ghost" title="Sign out">⎋</a>{% endif %}
+    </div>
   </header>
 
   <main>

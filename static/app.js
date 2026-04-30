@@ -16,6 +16,7 @@ const TYPE_COLORS = { stock: "#79c0ff", etf: "#d2a8ff", crypto: "#ffa657", cash:
 
 async function fetchHoldings() {
   const res = await fetch("/api/holdings");
+  if (res.status === 401) { window.location.href = "/login"; throw new Error("Session expired"); }
   if (!res.ok) throw new Error("Failed to load");
   return res.json();
 }
@@ -161,4 +162,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
   refresh();
   setInterval(refresh, 60000);
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+  }
 });

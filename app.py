@@ -2,23 +2,55 @@
 from __future__ import annotations
 
 import os
+import secrets
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
+from datetime import timedelta
+from functools import wraps
 from typing import Any
 
 import requests
 import yfinance as yf
-from flask import Flask, g, jsonify, render_template, request
+from flask import (
+    Flask,
+    g,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 
 DB_PATH = os.environ.get("PORTFOLIO_DB", os.path.join(os.path.dirname(__file__), "portfolio.db"))
 ASSET_TYPES = {"stock", "etf", "crypto", "cash"}
 PRICE_TTL_SECONDS = 60
+PASSWORD = os.environ.get("PORTFOLIO_PASSWORD")
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+app.permanent_session_lifetime = timedelta(days=30)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("FORCE_HTTPS", "").lower() in {"1", "true", "yes"},
+)
 
 _price_cache: dict[tuple[str, str], tuple[float, float]] = {}
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not PASSWORD or session.get("auth"):
+            return view(*args, **kwargs)
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "unauthorized"}), 401
+        return redirect(url_for("login", next=request.path))
+    return wrapped
 
 
 def get_db() -> sqlite3.Connection:
@@ -136,12 +168,49 @@ def serialize(row: sqlite3.Row, price: float | None) -> dict[str, Any]:
     }
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not PASSWORD:
+        return redirect(url_for("index"))
+    error = None
+    if request.method == "POST":
+        if (request.form.get("password") or "") == PASSWORD:
+            session.clear()
+            session["auth"] = True
+            session.permanent = True
+            return redirect(request.args.get("next") or url_for("index"))
+        error = "Wrong password"
+    return render_template("login.html", error=error), (401 if error else 200)
+
+
+@app.route("/logout", methods=["POST", "GET"])
+def logout():
+    session.clear()
+    return redirect(url_for("login") if PASSWORD else url_for("index"))
+
+
 @app.route("/")
+@login_required
 def index() -> str:
-    return render_template("index.html")
+    return render_template("index.html", auth_enabled=bool(PASSWORD))
+
+
+@app.route("/sw.js")
+def service_worker():
+    response = make_response(app.send_static_file("sw.js"))
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Content-Type"] = "application/javascript"
+    return response
+
+
+@app.route("/healthz")
+def healthz():
+    return {"ok": True}
 
 
 @app.get("/api/holdings")
+@login_required
 def list_holdings():
     rows = get_db().execute("SELECT * FROM holdings ORDER BY asset_type, symbol").fetchall()
 
@@ -189,6 +258,7 @@ def _validate_payload(data: dict[str, Any]) -> tuple[str, str, float, float, str
 
 
 @app.post("/api/holdings")
+@login_required
 def create_holding():
     try:
         symbol, asset_type, qty, cost, currency, note = _validate_payload(request.get_json() or {})
@@ -205,6 +275,7 @@ def create_holding():
 
 
 @app.put("/api/holdings/<int:holding_id>")
+@login_required
 def update_holding(holding_id: int):
     try:
         symbol, asset_type, qty, cost, currency, note = _validate_payload(request.get_json() or {})
@@ -223,6 +294,7 @@ def update_holding(holding_id: int):
 
 
 @app.delete("/api/holdings/<int:holding_id>")
+@login_required
 def delete_holding(holding_id: int):
     db = get_db()
     cur = db.execute("DELETE FROM holdings WHERE id=?", (holding_id,))
@@ -233,6 +305,7 @@ def delete_holding(holding_id: int):
 
 
 @app.get("/api/quote")
+@login_required
 def quote():
     symbol = (request.args.get("symbol") or "").strip().upper()
     asset_type = (request.args.get("asset_type") or "stock").strip().lower()
