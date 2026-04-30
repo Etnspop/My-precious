@@ -328,6 +328,128 @@ async function refresh() {
   window.__holdings = computed;
 }
 
+// --- symbol autocomplete ----------------------------------------------------
+
+async function searchYahooSymbols(query) {
+  const target = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`;
+  const fetchers = [() => fetch(target), ...CORS_PROXIES.map((p) => () => fetch(p(target)))];
+  for (const get of fetchers) {
+    try {
+      const r = await get();
+      if (!r.ok) continue;
+      const data = await r.json();
+      const quotes = Array.isArray(data?.quotes) ? data.quotes : [];
+      const out = [];
+      for (const q of quotes) {
+        const t = (q.quoteType || "").toUpperCase();
+        let assetType = null;
+        if (t === "ETF") assetType = "etf";
+        else if (t === "EQUITY" || t === "MUTUALFUND") assetType = "stock";
+        else if (t === "CRYPTOCURRENCY") assetType = "crypto";
+        if (!assetType || !q.symbol) continue;
+        out.push({
+          symbol: q.symbol,
+          name: q.shortname || q.longname || q.symbol,
+          asset_type: assetType,
+          exchange: q.exchDisp || q.exchange || "",
+        });
+      }
+      if (out.length) return out;
+    } catch {}
+  }
+  return [];
+}
+
+async function searchCryptoSymbols(query) {
+  try {
+    const r = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`);
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data.coins || []).slice(0, 10).map((c) => ({
+      symbol: (c.symbol || "").toUpperCase(),
+      name: c.name,
+      asset_type: "crypto",
+      exchange: "Crypto",
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function searchSymbols(query, type) {
+  if (!query) return [];
+  if (type === "crypto") return searchCryptoSymbols(query);
+  if (type === "cash") return [];
+  return searchYahooSymbols(query);
+}
+
+let _suggestTimer = null;
+let _suggestSeq = 0;
+
+function setupAutocomplete() {
+  const input = $("#f-symbol");
+  const list = $("#symbol-suggestions");
+  const typeSelect = $("#f-type");
+  if (!input || !list) return;
+
+  const hide = () => { list.classList.add("hidden"); list.innerHTML = ""; };
+
+  const render = (items) => {
+    if (!items.length) {
+      list.innerHTML = '<li class="empty">No matches</li>';
+      list.classList.remove("hidden");
+      return;
+    }
+    list.innerHTML = items
+      .map((it) => `
+        <li role="option"
+            data-symbol="${escapeHtml(it.symbol)}"
+            data-type="${escapeHtml(it.asset_type)}">
+          <span class="sym">${escapeHtml(it.symbol)}</span>
+          <span class="meta">${escapeHtml(it.name)}${it.exchange ? `<span class="badge">${escapeHtml(it.exchange)}</span>` : ""}</span>
+        </li>
+      `)
+      .join("");
+    list.classList.remove("hidden");
+  };
+
+  const runSearch = async () => {
+    const query = input.value.trim();
+    if (query.length < 1) { hide(); return; }
+    const seq = ++_suggestSeq;
+    const results = await searchSymbols(query, typeSelect.value);
+    if (seq !== _suggestSeq) return; // a newer query has fired; ignore stale results
+    render(results);
+  };
+
+  input.addEventListener("input", () => {
+    clearTimeout(_suggestTimer);
+    if (!input.value.trim()) { hide(); return; }
+    _suggestTimer = setTimeout(runSearch, 220);
+  });
+
+  input.addEventListener("focus", () => {
+    if (input.value.trim().length >= 1) runSearch();
+  });
+
+  // Use mousedown / touchstart so we beat the input blur handler.
+  list.addEventListener("mousedown", (e) => {
+    const li = e.target.closest("li[data-symbol]");
+    if (!li) return;
+    e.preventDefault();
+    input.value = li.dataset.symbol;
+    if (li.dataset.type) typeSelect.value = li.dataset.type;
+    hide();
+    input.focus();
+  });
+
+  input.addEventListener("blur", () => { setTimeout(hide, 180); });
+
+  typeSelect.addEventListener("change", () => {
+    if (input.value.trim().length >= 1) runSearch();
+  });
+}
+
 // --- form / CRUD ------------------------------------------------------------
 
 function openModal(holding) {
@@ -344,7 +466,11 @@ function openModal(holding) {
   setTimeout(() => $("#f-symbol").focus(), 50);
 }
 
-function closeModal() { $("#modal").classList.add("hidden"); }
+function closeModal() {
+  $("#modal").classList.add("hidden");
+  const sugg = $("#symbol-suggestions");
+  if (sugg) { sugg.classList.add("hidden"); sugg.innerHTML = ""; }
+}
 
 function validate(payload) {
   if (!payload.symbol) return "symbol is required";
@@ -507,6 +633,8 @@ document.addEventListener("DOMContentLoaded", () => {
     fxCache.clear();
     await refresh();
   });
+
+  setupAutocomplete();
 
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closeMenu(); } });
 
