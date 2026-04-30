@@ -88,6 +88,35 @@ function newId() {
 
 const priceCache = new Map(); // key: `${type}:${symbol}` -> {at, price}
 
+// CoinGecko expects coin IDs ("bitcoin"), not symbols ("BTC"). Resolve the
+// symbol to an ID via /search and cache the mapping for the session. The
+// previous version queried `?ids=btc` and never returned a price, so when
+// Binance was blocked (e.g., US IPs) crypto values went to 0.
+const cgIdCache = new Map();
+
+async function resolveCoinGeckoId(symbol) {
+  if (!symbol) return null;
+  const key = symbol.toUpperCase().replace(/(USDT|USDC|BUSD|USD)$/, "");
+  if (!key) return null;
+  if (cgIdCache.has(key)) return cgIdCache.get(key);
+  try {
+    const r = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(key)}`);
+    if (r.ok) {
+      const data = await r.json();
+      const list = data.coins || [];
+      // Prefer an exact symbol match with the lowest market-cap rank.
+      const exact = list
+        .filter((c) => (c.symbol || "").toUpperCase() === key)
+        .sort((a, b) => (a.market_cap_rank || 9e9) - (b.market_cap_rank || 9e9))[0];
+      const id = exact?.id || list[0]?.id || null;
+      cgIdCache.set(key, id);
+      return id;
+    }
+  } catch {}
+  cgIdCache.set(key, null);
+  return null;
+}
+
 async function fetchCryptoPrice(symbol) {
   let pair = symbol.toUpperCase();
   if (!/(USDT|USD|BUSD|USDC)$/.test(pair)) pair += "USDT";
@@ -99,17 +128,36 @@ async function fetchCryptoPrice(symbol) {
       if (!isNaN(p)) return p;
     }
   } catch { /* fall through */ }
-  // CoinGecko fallback (also helps for users in regions where Binance is blocked).
+  // CoinGecko fallback — works in regions where Binance is blocked.
+  const id = await resolveCoinGeckoId(symbol);
+  if (id) {
+    try {
+      const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(id)}&vs_currencies=usd`);
+      if (r.ok) {
+        const data = await r.json();
+        const p = data?.[id]?.usd;
+        if (typeof p === "number") return p;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function fetchCoinGeckoHistory(symbol, days) {
+  const id = await resolveCoinGeckoId(symbol);
+  if (!id) return [];
   try {
-    const coin = symbol.toLowerCase().replace(/(usdt|usdc|busd|usd)$/, "");
-    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coin)}&vs_currencies=usd`);
+    const r = await fetch(
+      `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${days}`
+    );
     if (r.ok) {
       const data = await r.json();
-      const p = data?.[coin]?.usd;
-      if (typeof p === "number") return p;
+      return (data.prices || [])
+        .map(([t, v]) => ({ t, v }))
+        .filter((p) => !isNaN(p.v) && p.v > 0);
     }
   } catch {}
-  return null;
+  return [];
 }
 
 // Public CORS proxies — used as fallbacks when source APIs reject browser
@@ -403,6 +451,7 @@ async function fetchHistory(symbol, type, range) {
   if (type === "crypto") {
     points = await fetchBinanceHistory(symbol, range);
     if (!points.length) points = await fetchYahooHistory(`${symbol.toUpperCase()}-USD`, range);
+    if (!points.length) points = await fetchCoinGeckoHistory(symbol, rangeDays(range));
   } else {
     points = await fetchYahooHistory(symbol, range);
   }
