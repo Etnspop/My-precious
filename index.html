@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <link rel="icon" type="image/png" href="./icon-192.png" />
   <link rel="manifest" href="./manifest.json" />
-  <link rel="stylesheet" href="./style.css?v=8" />
+  <link rel="stylesheet" href="./style.css?v=9" />
 </head>
 <body>
   <header class="topbar">
@@ -45,6 +45,40 @@
         <span class="label">Allocation</span>
         <div id="breakdown" class="bars"></div>
       </div>
+    </section>
+
+    <section class="panel chart-panel">
+      <div class="panel-head">
+        <h2>Performance</h2>
+        <div class="chart-controls">
+          <select id="bench-select" title="Benchmark">
+            <option value="^GSPC">S&amp;P 500</option>
+            <option value="^IXIC">Nasdaq</option>
+            <option value="^DJI">Dow Jones</option>
+            <option value="^RUT">Russell 2000</option>
+            <option value="^N225">Nikkei 225</option>
+            <option value="^HSI">Hang Seng</option>
+            <option value="^FTSE">FTSE 100</option>
+            <option value="BTC-USD">Bitcoin</option>
+            <option value="ETH-USD">Ethereum</option>
+            <option value="GC=F">Gold</option>
+            <option value="">None</option>
+            <option value="__custom__">Custom symbol…</option>
+          </select>
+          <input id="bench-custom" class="bench-custom hidden" placeholder="ticker e.g. NVDA" autocomplete="off" />
+        </div>
+      </div>
+      <div class="range-bar">
+        <button class="range-btn" data-range="1mo">1M</button>
+        <button class="range-btn" data-range="3mo">3M</button>
+        <button class="range-btn" data-range="6mo">6M</button>
+        <button class="range-btn active" data-range="1y">1Y</button>
+        <button class="range-btn" data-range="5y">5Y</button>
+      </div>
+      <div id="chart-host" class="chart-host">
+        <div class="chart-empty">Add holdings to see performance.</div>
+      </div>
+      <div id="chart-legend" class="chart-legend"></div>
     </section>
 
     <section class="panel">
@@ -138,6 +172,6 @@
     <small>Prices via Binance &amp; Yahoo Finance · all data stays on your device</small>
   </footer>
 
-  <script src="./app.js?v=8"></script>
+  <script src="./app.js?v=9"></script>
 </body>
 </html>

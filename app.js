@@ -326,6 +326,288 @@ async function refresh() {
   renderBreakdown(breakdown, totals.market_value);
 
   window.__holdings = computed;
+  await renderChart(); // refresh chart whenever holdings/prices update
+}
+
+// --- historical data + chart ------------------------------------------------
+
+const RANGE_DAYS = { "1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "5y": 1825 };
+const historyCache = new Map(); // key: `${symbol}:${type}:${range}` -> {at, points}
+const HISTORY_TTL_MS = 30 * 60_000;
+
+let chartState = {
+  range: "1y",
+  benchmark: "^GSPC",
+};
+
+async function fetchYahooHistory(symbol, range) {
+  const target = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
+  const fetchers = [() => fetch(target), ...CORS_PROXIES.map((p) => () => fetch(p(target)))];
+  for (const get of fetchers) {
+    try {
+      const r = await get();
+      if (!r.ok) continue;
+      const data = await r.json();
+      const result = data?.chart?.result?.[0];
+      if (!result) continue;
+      const ts = result.timestamp || [];
+      const closes = result.indicators?.quote?.[0]?.close || [];
+      const points = [];
+      for (let i = 0; i < ts.length; i++) {
+        const v = closes[i];
+        if (typeof v === "number" && !isNaN(v) && v > 0) points.push({ t: ts[i] * 1000, v });
+      }
+      if (points.length) return points;
+    } catch {}
+  }
+  return [];
+}
+
+async function fetchBinanceHistory(symbol, range) {
+  let pair = symbol.toUpperCase();
+  if (!/(USDT|USD|BUSD|USDC)$/.test(pair)) pair += "USDT";
+  const limit = Math.min(1000, RANGE_DAYS[range] || 365);
+  try {
+    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1d&limit=${limit}`);
+    if (r.ok) {
+      const data = await r.json();
+      return data.map((k) => ({ t: k[0], v: parseFloat(k[4]) })).filter((p) => !isNaN(p.v) && p.v > 0);
+    }
+  } catch {}
+  return [];
+}
+
+async function fetchHistory(symbol, type, range) {
+  const key = `${type}:${symbol.toUpperCase()}:${range}`;
+  const cached = historyCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.at < HISTORY_TTL_MS) return cached.points;
+  let points = [];
+  if (type === "crypto") {
+    points = await fetchBinanceHistory(symbol, range);
+    if (!points.length) points = await fetchYahooHistory(`${symbol.toUpperCase()}-USD`, range);
+  } else {
+    points = await fetchYahooHistory(symbol, range);
+  }
+  historyCache.set(key, { at: now, points });
+  return points;
+}
+
+// Build a portfolio time series at daily granularity. For each day in the
+// union of all holdings' history timestamps, compute sum(qty * forward-filled
+// price). Cash is constant at 1 USD. All math is in USD.
+async function computePortfolioSeries(holdings, range) {
+  const days = RANGE_DAYS[range] || 365;
+  const cutoff = Date.now() - days * 24 * 3600 * 1000;
+  const histories = await Promise.all(
+    holdings.map((h) => h.asset_type === "cash" ? Promise.resolve(null) : fetchHistory(h.symbol, h.asset_type, range))
+  );
+
+  // Build union of timestamps (rounded to UTC midnight to align stocks across exchanges).
+  const dayMs = 24 * 3600 * 1000;
+  const tsSet = new Set();
+  histories.forEach((h) => h?.forEach((p) => {
+    if (p.t < cutoff) return;
+    tsSet.add(Math.floor(p.t / dayMs) * dayMs);
+  }));
+  if (!tsSet.size) return [];
+  const sortedTs = Array.from(tsSet).sort((a, b) => a - b);
+
+  // Forward-fill each holding to the unified day grid.
+  const aligned = holdings.map((h, i) => {
+    if (h.asset_type === "cash") return sortedTs.map(() => 1);
+    const hist = histories[i];
+    if (!hist || !hist.length) return null;
+    const out = new Array(sortedTs.length).fill(null);
+    let last = null;
+    let idx = 0;
+    for (let j = 0; j < sortedTs.length; j++) {
+      while (idx < hist.length && hist[idx].t <= sortedTs[j] + dayMs) {
+        last = hist[idx].v;
+        idx++;
+      }
+      out[j] = last;
+    }
+    return out;
+  });
+
+  const series = [];
+  for (let j = 0; j < sortedTs.length; j++) {
+    let total = 0;
+    let allMissing = true;
+    for (let i = 0; i < holdings.length; i++) {
+      const a = aligned[i];
+      if (!a) continue;
+      const price = a[j];
+      if (price !== null) {
+        total += holdings[i].quantity * price;
+        allMissing = false;
+      }
+    }
+    if (!allMissing) series.push({ t: sortedTs[j], v: total });
+  }
+  return series;
+}
+
+function escapeAttr(s) { return escapeHtml(s); }
+
+function renderSvgChart(host, seriesList) {
+  if (!seriesList.length || !seriesList[0].points.length) {
+    host.innerHTML = '<div class="chart-empty">No history available.</div>';
+    return;
+  }
+  const W = 800, H = 240;
+  const padL = 56, padR = 14, padT = 10, padB = 26;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+
+  const allPts = seriesList.flatMap((s) => s.points);
+  let minT = Infinity, maxT = -Infinity, minV = Infinity, maxV = -Infinity;
+  for (const p of allPts) {
+    if (p.t < minT) minT = p.t;
+    if (p.t > maxT) maxT = p.t;
+    if (p.v < minV) minV = p.v;
+    if (p.v > maxV) maxV = p.v;
+  }
+  if (!isFinite(minT) || maxT === minT) {
+    host.innerHTML = '<div class="chart-empty">Not enough history yet.</div>';
+    return;
+  }
+  const pad = (maxV - minV) * 0.05 || 1;
+  minV -= pad; maxV += pad;
+
+  const x = (t) => padL + ((t - minT) / (maxT - minT)) * innerW;
+  const y = (v) => padT + (1 - (v - minV) / (maxV - minV)) * innerH;
+
+  // Y-axis ticks (4 evenly spaced)
+  const yTicks = [];
+  for (let i = 0; i <= 4; i++) {
+    const v = minV + ((maxV - minV) * i) / 4;
+    yTicks.push({ v, y: y(v) });
+  }
+
+  // X-axis ticks (start, mid, end)
+  const xTicks = [
+    { t: minT, x: x(minT) },
+    { t: (minT + maxT) / 2, x: x((minT + maxT) / 2) },
+    { t: maxT, x: x(maxT) },
+  ];
+
+  const fmtAxisDate = (t) => new Date(t).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  const fmtAxisY = (v) => fmtMoney(v).replace(/\.\d+$/, "");
+
+  const grid = yTicks.map((t) =>
+    `<line x1="${padL}" x2="${W - padR}" y1="${t.y}" y2="${t.y}"/>`
+  ).join("");
+
+  const yLabels = yTicks.map((t) =>
+    `<text x="${padL - 6}" y="${t.y + 4}" text-anchor="end">${escapeAttr(fmtAxisY(t.v))}</text>`
+  ).join("");
+
+  const xLabels = xTicks.map((t) =>
+    `<text x="${t.x}" y="${H - 6}" text-anchor="middle">${escapeAttr(fmtAxisDate(t.t))}</text>`
+  ).join("");
+
+  const lines = seriesList.map((s) => {
+    const d = s.points.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+    return `<path class="chart-line" d="${d}" stroke="${escapeAttr(s.color)}"/>`;
+  }).join("");
+
+  host.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <g class="chart-grid">${grid}</g>
+      <g class="chart-axis">${yLabels}${xLabels}</g>
+      ${lines}
+    </svg>`;
+}
+
+function renderLegend(seriesList) {
+  const el = $("#chart-legend");
+  if (!seriesList.length) { el.innerHTML = ""; return; }
+  el.innerHTML = seriesList.map((s) => {
+    const first = s.points[0]?.v ?? 0;
+    const last = s.points[s.points.length - 1]?.v ?? 0;
+    const pct = first ? ((last - first) / first) * 100 : 0;
+    const cls = pct >= 0 ? "pos" : "neg";
+    const sign = pct >= 0 ? "+" : "";
+    return `
+      <span class="lg">
+        <span class="swatch" style="background:${escapeAttr(s.color)}"></span>
+        <span>${escapeAttr(s.label)}</span>
+        <span class="lg-meta">${escapeAttr(fmtMoney(last))}</span>
+        <span class="lg-pct ${cls}">${sign}${pct.toFixed(2)}%</span>
+      </span>`;
+  }).join("");
+}
+
+async function renderChart() {
+  const host = $("#chart-host");
+  if (!host) return;
+  const holdings = loadHoldings();
+  if (!holdings.length) {
+    host.innerHTML = '<div class="chart-empty">Add holdings to see performance.</div>';
+    $("#chart-legend").innerHTML = "";
+    return;
+  }
+  host.innerHTML = '<div class="chart-empty chart-loading">Loading chart…</div>';
+
+  const range = chartState.range;
+  const benchSym = chartState.benchmark === "__custom__"
+    ? ($("#bench-custom")?.value.trim() || "")
+    : chartState.benchmark;
+
+  const portfolio = await computePortfolioSeries(holdings, range);
+  if (!portfolio.length) {
+    host.innerHTML = '<div class="chart-empty">No price history available for these holdings.</div>';
+    $("#chart-legend").innerHTML = "";
+    return;
+  }
+
+  const series = [{
+    label: "Portfolio",
+    color: "#5cc8ff",
+    points: portfolio,
+  }];
+
+  if (benchSym) {
+    let benchPoints = await fetchYahooHistory(benchSym, range);
+    if (!benchPoints.length && /^[A-Z]+$/.test(benchSym)) {
+      // try crypto fallback for short tickers like BTC
+      benchPoints = await fetchYahooHistory(`${benchSym}-USD`, range);
+    }
+    if (benchPoints.length) {
+      // Trim to portfolio time range and rebase to portfolio's starting value.
+      const pStart = portfolio[0].t;
+      const trimmed = benchPoints.filter((p) => p.t >= pStart - 24 * 3600 * 1000);
+      if (trimmed.length) {
+        const baseline = trimmed[0].v;
+        const scale = portfolio[0].v / baseline;
+        series.push({
+          label: benchLabel(benchSym),
+          color: "#d29922",
+          points: trimmed.map((p) => ({ t: p.t, v: p.v * scale })),
+        });
+      }
+    }
+  }
+
+  // Convert all USD points to active currency for display.
+  const display = series.map((s) => ({
+    ...s,
+    points: s.points.map((p) => ({ t: p.t, v: p.v * activeRate })),
+  }));
+
+  renderSvgChart(host, display);
+  renderLegend(display);
+}
+
+function benchLabel(sym) {
+  const map = {
+    "^GSPC": "S&P 500", "^IXIC": "Nasdaq", "^DJI": "Dow Jones",
+    "^RUT": "Russell 2000", "^N225": "Nikkei 225", "^HSI": "Hang Seng",
+    "^FTSE": "FTSE 100", "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum",
+    "GC=F": "Gold",
+  };
+  return map[sym] || sym;
 }
 
 // --- symbol autocomplete ----------------------------------------------------
@@ -658,6 +940,33 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   setupAutocomplete();
+
+  // Chart controls
+  document.querySelectorAll(".range-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".range-btn").forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      chartState.range = b.dataset.range;
+      renderChart();
+    });
+  });
+  const benchSel = $("#bench-select");
+  const benchCustom = $("#bench-custom");
+  benchSel.addEventListener("change", () => {
+    chartState.benchmark = benchSel.value;
+    if (benchSel.value === "__custom__") {
+      benchCustom.classList.remove("hidden");
+      benchCustom.focus();
+    } else {
+      benchCustom.classList.add("hidden");
+      renderChart();
+    }
+  });
+  let benchTimer = null;
+  benchCustom.addEventListener("input", () => {
+    clearTimeout(benchTimer);
+    benchTimer = setTimeout(renderChart, 400);
+  });
 
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closeMenu(); } });
 
