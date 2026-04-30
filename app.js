@@ -332,6 +332,23 @@ async function refresh() {
 // --- historical data + chart ------------------------------------------------
 
 const RANGE_DAYS = { "1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "5y": 1825 };
+
+function rangeCutoffMs(range) {
+  if (range === "ytd") {
+    const now = new Date();
+    return Date.UTC(now.getUTCFullYear(), 0, 1);
+  }
+  const days = RANGE_DAYS[range] || 365;
+  return Date.now() - days * 24 * 3600 * 1000;
+}
+
+function rangeDays(range) {
+  if (range === "ytd") {
+    const start = rangeCutoffMs("ytd");
+    return Math.max(1, Math.ceil((Date.now() - start) / (24 * 3600 * 1000)));
+  }
+  return RANGE_DAYS[range] || 365;
+}
 const historyCache = new Map(); // key: `${symbol}:${type}:${range}` -> {at, points}
 const HISTORY_TTL_MS = 30 * 60_000;
 
@@ -366,7 +383,7 @@ async function fetchYahooHistory(symbol, range) {
 async function fetchBinanceHistory(symbol, range) {
   let pair = symbol.toUpperCase();
   if (!/(USDT|USD|BUSD|USDC)$/.test(pair)) pair += "USDT";
-  const limit = Math.min(1000, RANGE_DAYS[range] || 365);
+  const limit = Math.min(1000, rangeDays(range));
   try {
     const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1d&limit=${limit}`);
     if (r.ok) {
@@ -397,8 +414,7 @@ async function fetchHistory(symbol, type, range) {
 // union of all holdings' history timestamps, compute sum(qty * forward-filled
 // price). Cash is constant at 1 USD. All math is in USD.
 async function computePortfolioSeries(holdings, range) {
-  const days = RANGE_DAYS[range] || 365;
-  const cutoff = Date.now() - days * 24 * 3600 * 1000;
+  const cutoff = rangeCutoffMs(range);
   const histories = await Promise.all(
     holdings.map((h) => h.asset_type === "cash" ? Promise.resolve(null) : fetchHistory(h.symbol, h.asset_type, range))
   );
