@@ -370,10 +370,30 @@ function submitForm(e) {
 
   const holdings = loadHoldings();
   if (id) {
+    // Editing — replace the specific holding without merging.
     const idx = holdings.findIndex((h) => h.id === id);
     if (idx >= 0) holdings[idx] = { ...holdings[idx], ...payload };
   } else {
-    holdings.push({ id: newId(), ...payload });
+    // Adding — if a holding with the same symbol+type already exists, merge
+    // into it (sum quantities, weighted-average cost). Otherwise append.
+    const existingIdx = holdings.findIndex(
+      (h) => h.symbol === payload.symbol && h.asset_type === payload.asset_type
+    );
+    if (existingIdx >= 0) {
+      const existing = holdings[existingIdx];
+      const totalQty = (existing.quantity || 0) + payload.quantity;
+      const oldInvested = (existing.quantity || 0) * (existing.cost_basis || 0);
+      const newInvested = payload.quantity * (payload.cost_basis || 0);
+      const weightedCost = totalQty > 0 ? (oldInvested + newInvested) / totalQty : 0;
+      holdings[existingIdx] = {
+        ...existing,
+        quantity: totalQty,
+        cost_basis: weightedCost,
+        note: existing.note || payload.note,
+      };
+    } else {
+      holdings.push({ id: newId(), ...payload });
+    }
   }
   saveHoldings(holdings);
   closeModal();
