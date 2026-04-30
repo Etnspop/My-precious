@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Precious" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}" />
-  <link rel="icon" type="image/png" href="{{ url_for('static', filename='icon-192.png') }}" />
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="./icon-192.png" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <header class="topbar">
@@ -22,7 +22,7 @@
     </div>
     <div class="topbar-actions">
       <button id="refresh-btn" class="btn ghost" title="Refresh prices">↻</button>
-      {% if auth_enabled %}<a href="/logout" class="btn ghost" title="Sign out">⎋</a>{% endif %}
+      <button id="menu-btn" class="btn ghost" title="Menu">⋯</button>
     </div>
   </header>
 
@@ -80,7 +80,7 @@
       <form id="holding-form">
         <input type="hidden" id="f-id" />
         <label>Symbol
-          <input id="f-symbol" required placeholder="AAPL, BTC, VTI…" autocomplete="off" />
+          <input id="f-symbol" required placeholder="AAPL, BTC, VTI…" autocomplete="off" autocapitalize="characters" />
         </label>
         <label>Asset type
           <select id="f-type" required>
@@ -91,13 +91,13 @@
           </select>
         </label>
         <label>Quantity
-          <input id="f-qty" type="number" step="any" min="0" required />
+          <input id="f-qty" type="number" step="any" min="0" required inputmode="decimal" />
         </label>
         <label>Avg cost / unit
-          <input id="f-cost" type="number" step="any" min="0" value="0" />
+          <input id="f-cost" type="number" step="any" min="0" value="0" inputmode="decimal" />
         </label>
         <label>Currency
-          <input id="f-currency" value="USD" maxlength="6" />
+          <input id="f-currency" value="USD" maxlength="6" autocapitalize="characters" />
         </label>
         <label>Note
           <input id="f-note" placeholder="Optional" />
@@ -111,10 +111,26 @@
     </div>
   </div>
 
+  <div id="menu" class="modal hidden">
+    <div class="modal-card">
+      <h3>Menu</h3>
+      <div class="menu-list">
+        <button id="export-btn" class="btn block ghost">Export portfolio (JSON)</button>
+        <button id="import-btn" class="btn block ghost">Import portfolio (JSON)</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden />
+        <button id="clear-btn" class="btn block ghost danger">Clear all holdings…</button>
+      </div>
+      <p class="muted small">Your portfolio is stored only in this browser. Use export to back it up or move it to another device.</p>
+      <div class="actions">
+        <button type="button" id="menu-close" class="btn primary">Done</button>
+      </div>
+    </div>
+  </div>
+
   <footer>
-    <small>Prices via Yahoo Finance &amp; Binance · cached 60s · for personal use</small>
+    <small>Prices via Binance &amp; Yahoo Finance · all data stays on your device</small>
   </footer>
 
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="./app.js"></script>
 </body>
 </html>

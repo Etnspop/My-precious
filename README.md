@@ -1,152 +1,123 @@
 # My Precious — Portfolio Tracker
 
-A self-hosted, **iPhone-installable** web app for tracking your stocks, ETFs,
-crypto, and cash. Live prices come from free APIs — Yahoo Finance via
-`yfinance`, Binance public ticker, with CoinGecko as a fallback — so no API
-keys are needed. Net worth and gain/loss recalculate instantly.
+A tiny **iPhone-installable** portfolio tracker for stocks, ETFs, crypto, and
+cash. Live prices come from free APIs (Binance + CoinGecko for crypto, Yahoo
+Finance + Stooq for stocks) — no keys, no signup, no backend.
 
-It's a Progressive Web App: open the site in Safari on your iPhone, tap
-**Share → Add to Home Screen**, and you get an app-icon launcher with no
-Safari chrome. A service worker caches the app shell so it opens instantly,
-even on a slow connection.
+**Your data never leaves your device.** Holdings are stored in your phone's
+own browser storage. Two people opening the same URL each get their own
+private portfolio. Nothing is uploaded anywhere.
+
+## Live demo / share link
+
+Once GitHub Pages is enabled (see below), the app is published at:
+
+```
+https://<your-github-username>.github.io/My-precious/
+```
+
+Share that URL with anyone — each person stores their own portfolio in their
+own phone.
+
+## Install on your iPhone
+
+1. Open the URL above in **Safari** (must be Safari — only Safari can install
+   PWAs on iOS).
+2. Tap the **Share** button (square with up-arrow).
+3. Tap **Add to Home Screen** → **Add**.
+4. The app icon now sits on your home screen and opens full-screen, no browser
+   chrome. It even works briefly offline thanks to the service worker.
+
+The same flow works on Android (Chrome → menu → "Add to Home screen").
 
 ## Features
 
 - Add, edit, delete holdings (stocks, ETFs, crypto, cash)
-- Live prices with a 60-second cache, fetched in parallel
-- Net worth, total invested, total gain/%, asset allocation breakdown
-- Mobile-first dashboard, dark theme, iOS safe-area aware
-- Optional password gate (recommended when deployed publicly)
-- Installable as a PWA on iPhone & Android
-
-## Quick start (local)
-
-```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
-```
-
-Open <http://localhost:5000>. To test on your phone over Wi-Fi, find your
-machine's LAN IP (e.g. `192.168.1.50`) and visit `http://192.168.1.50:5000`
-from Safari on your iPhone.
-
-To enable the password gate locally:
-
-```bash
-PORTFOLIO_PASSWORD=hunter2 python app.py
-```
-
-## Install on your iPhone
-
-1. Open the app's URL in **Safari** (it must be Safari, not Chrome — only
-   Safari can install PWAs on iOS).
-2. Tap the **Share** button (square with up-arrow).
-3. Scroll down and tap **Add to Home Screen**.
-4. Tap **Add**. The app icon now lives on your home screen and opens
-   full-screen, no browser bars.
-
-## Deploy to the internet (so you can use it on cellular)
-
-The app currently has no built-in user accounts, so **set
-`PORTFOLIO_PASSWORD` before exposing it to the internet**.
-
-### Option A — Render (easiest)
-
-This repo contains a `render.yaml` blueprint.
-
-1. Push this repo to GitHub.
-2. Sign in to <https://render.com> → **New** → **Blueprint** → pick this repo.
-3. Render reads `render.yaml`, creates the web service and a 1 GB disk for
-   SQLite, generates a `SECRET_KEY`, and asks you to fill in
-   `PORTFOLIO_PASSWORD`.
-4. After deploy, open the URL on your iPhone and Add to Home Screen.
-
-> Render's *free* tier has no persistent disk and sleeps after 15 min idle —
-> your data would be wiped on each cold start. The blueprint uses the
-> **Starter** tier ($7/mo + $1/mo for the 1 GB disk) so SQLite survives
-> restarts. If you want to stay free, see Option B.
-
-### Option B — Fly.io (free volumes)
-
-A `fly.toml` is included.
-
-```bash
-brew install flyctl                 # or curl -L https://fly.io/install.sh | sh
-fly auth login
-fly launch --no-deploy --copy-config --name my-precious
-fly volumes create data --size 1 --region iad
-fly secrets set PORTFOLIO_PASSWORD=your-password \
-                SECRET_KEY=$(python -c "import secrets;print(secrets.token_hex(32))")
-fly deploy
-```
-
-Fly's Hobby plan includes 3 GB of persistent volumes and machines that auto-stop
-when idle — well within free limits for a personal tracker.
-
-### Option C — Run on a home machine and tunnel
-
-If you'd rather not pay or sign up:
-
-```bash
-pip install -r requirements.txt
-PORTFOLIO_PASSWORD=hunter2 gunicorn app:app --bind 0.0.0.0:5000
-```
-
-Then expose it via Cloudflare Tunnel, Tailscale Funnel, or `ngrok`. Simplest:
-
-```bash
-brew install cloudflared
-cloudflared tunnel --url http://localhost:5000
-```
-
-Cloudflare prints a public `https://*.trycloudflare.com` URL — open that on
-your iPhone and Add to Home Screen.
+- Live prices in the browser, 60s cache, parallel fetch
+- Net worth, total invested, total gain / %, asset allocation bars
+- Mobile-first dark UI with iOS safe-area insets and a stacked card layout on
+  small screens
+- **Export** your portfolio to a JSON file and **import** it back — that's
+  how you back up or move to another device
+- Fully offline-capable shell (PWA service worker)
+- 100 % static — no server, no database, no accounts
 
 ## Symbol formats
 
-| Asset type | Example                  | Source                       |
-|------------|--------------------------|------------------------------|
-| stock      | `AAPL`, `MSFT`, `TSLA`   | Yahoo Finance (yfinance)     |
-| etf        | `VTI`, `SPY`, `QQQ`      | Yahoo Finance                |
-| crypto     | `BTC`, `ETH`, `SOLUSDT`  | Binance (fallback CoinGecko) |
-| cash       | `USD`, `EUR`             | Stored at 1.0                |
+| Asset type | Example                  | Source                                  |
+|------------|--------------------------|-----------------------------------------|
+| stock      | `AAPL`, `MSFT`, `TSLA`   | Yahoo Finance (Stooq fallback)          |
+| etf        | `VTI`, `SPY`, `QQQ`      | Yahoo Finance (Stooq fallback)          |
+| crypto     | `BTC`, `ETH`, `SOLUSDT`  | Binance (CoinGecko fallback)            |
+| cash       | `USD`, `EUR`             | Stored at 1.0                           |
 
-Bare crypto tickers (`BTC`) are auto-paired with `USDT` when querying Binance.
+For crypto, bare tickers (`BTC`) are auto-paired with `USDT` for Binance.
 
-## Configuration
+## Backup, move, share data
 
-| Env var              | Default          | Purpose                                      |
-|----------------------|------------------|----------------------------------------------|
-| `PORT`               | `5000`           | HTTP port                                    |
-| `PORTFOLIO_DB`       | `./portfolio.db` | SQLite database file                         |
-| `PORTFOLIO_PASSWORD` | *(unset)*        | If set, requires login. Strongly recommended on the public internet. |
-| `SECRET_KEY`         | random per-boot  | Flask session signing key. Set in production so sessions survive restarts. |
-| `FORCE_HTTPS`        | `false`          | When `true`, marks session cookie `Secure`. Set on Render/Fly. |
+The app stores everything in `localStorage` under the key
+`myprecious.holdings.v1`. To **back up** or **move to a new phone**:
 
-## API
+1. Open the **⋯ menu** → **Export portfolio (JSON)** — saves a `.json` file.
+2. On the new device, open the same app URL → **⋯ menu** → **Import
+   portfolio (JSON)** — pick the file.
 
-All `/api/*` endpoints require login when `PORTFOLIO_PASSWORD` is set.
+You can also share that JSON file with someone else as a starter portfolio.
 
-- `GET  /api/holdings` — list with prices, totals, breakdown
-- `POST /api/holdings` — `{symbol, asset_type, quantity, cost_basis, currency?, note?}`
-- `PUT  /api/holdings/<id>` — update
-- `DELETE /api/holdings/<id>` — remove
-- `GET  /api/quote?symbol=AAPL&asset_type=stock` — quick lookup
-- `GET  /healthz` — liveness probe (used by Render/Fly)
+## Run locally
 
-## Tech
+The whole app is just static files. From the project root:
 
-- Python 3.10+ / Flask + Gunicorn
-- SQLite (stdlib `sqlite3`)
-- `yfinance` for stocks/ETFs, Binance + CoinGecko for crypto
-- Vanilla HTML/CSS/JS — no build step
-- PWA: manifest, service worker, iOS-specific meta tags
+```bash
+python3 -m http.server 8000
+# or: npx serve .
+```
 
-## Notes
+Then visit <http://localhost:8000>. To test on your phone over Wi-Fi, use
+your machine's LAN IP, e.g. `http://192.168.1.50:8000`.
 
-This app is for personal use. Yahoo Finance and Binance public endpoints are
-unauthenticated and rate-limited; the 60-second price cache keeps you well
-under their limits for personal portfolios. Do not point this at a use case
-where it serves many users — both APIs may rate-limit or block you.
+## Publish on GitHub Pages
+
+This repo includes a workflow at `.github/workflows/pages.yml` that
+automatically deploys the site whenever you push to `main`.
+
+One-time setup:
+
+1. Push to GitHub (the `main` branch).
+2. Open **Settings → Pages** in the repo on GitHub.
+3. Under **Build and deployment**, set **Source** to **GitHub Actions**.
+4. The next push to `main` deploys to
+   `https://<your-username>.github.io/<repo-name>/`.
+
+Custom domain? Add a `CNAME` file with your domain, configure DNS, and Pages
+will serve it over HTTPS automatically.
+
+## File map
+
+```
+index.html             single-page app shell
+app.js                 storage, price fetching, rendering, export/import
+style.css              dark / mobile-first styles
+manifest.json          PWA metadata
+sw.js                  service worker (offline shell cache)
+icon-192.png           PWA icon (also used as favicon)
+icon-512.png           PWA icon (large)
+icon-maskable-512.png  PWA maskable icon (Android adaptive)
+apple-touch-icon.png   iOS home-screen icon (180×180)
+.github/workflows/
+  pages.yml            auto-deploy to GitHub Pages
+```
+
+## Notes & limitations
+
+- **Stock prices** come from public Yahoo / Stooq endpoints in the browser.
+  These are unauthenticated and rate-limited; for personal use the 60-second
+  in-memory cache keeps you well under the limits. Yahoo's CORS policy can
+  occasionally change — the Stooq fallback covers most US listings if Yahoo
+  blocks you.
+- **Crypto** uses Binance's public ticker. A few regions block
+  `api.binance.com`; the CoinGecko fallback handles those cases.
+- **Storage** is per-browser-per-device. Clearing your Safari data wipes the
+  portfolio. Use Export periodically to keep a backup.
+- This is a personal-use tool, not a brokerage. Numbers are informational and
+  may lag the market.
