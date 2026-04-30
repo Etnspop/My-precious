@@ -114,6 +114,12 @@
   <div id="menu" class="modal hidden">
     <div class="modal-card">
       <h3>Menu</h3>
+      <label class="menu-row">
+        <span>Display currency</span>
+        <select id="currency-select"></select>
+      </label>
+      <p class="muted small" id="fx-note">Net worth is converted from USD using live ECB rates (cached 1 hour).</p>
+      <hr class="menu-sep" />
       <div class="menu-list">
         <button id="export-btn" class="btn block ghost">Export portfolio (JSON)</button>
         <button id="import-btn" class="btn block ghost">Import portfolio (JSON)</button>

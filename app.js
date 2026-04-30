@@ -1,6 +1,27 @@
 const $ = (sel) => document.querySelector(sel);
 const STORE_KEY = "myprecious.holdings.v1";
+const SETTINGS_KEY = "myprecious.settings.v1";
 const PRICE_TTL_MS = 60_000;
+const FX_TTL_MS = 60 * 60_000;
+
+const SUPPORTED_CURRENCIES = [
+  ["USD", "US Dollar"], ["EUR", "Euro"], ["GBP", "British Pound"],
+  ["JPY", "Japanese Yen"], ["CHF", "Swiss Franc"], ["CAD", "Canadian Dollar"],
+  ["AUD", "Australian Dollar"], ["NZD", "New Zealand Dollar"],
+  ["CNY", "Chinese Yuan"], ["HKD", "Hong Kong Dollar"], ["TWD", "Taiwan Dollar"],
+  ["SGD", "Singapore Dollar"], ["KRW", "South Korean Won"],
+  ["INR", "Indian Rupee"], ["IDR", "Indonesian Rupiah"], ["MYR", "Malaysian Ringgit"],
+  ["PHP", "Philippine Peso"], ["THB", "Thai Baht"], ["VND", "Vietnamese Dong"],
+  ["AED", "UAE Dirham"], ["SAR", "Saudi Riyal"], ["ILS", "Israeli Shekel"],
+  ["TRY", "Turkish Lira"], ["RUB", "Russian Ruble"], ["ZAR", "South African Rand"],
+  ["MXN", "Mexican Peso"], ["BRL", "Brazilian Real"], ["ARS", "Argentine Peso"],
+  ["CLP", "Chilean Peso"], ["COP", "Colombian Peso"],
+  ["NOK", "Norwegian Krone"], ["SEK", "Swedish Krona"], ["DKK", "Danish Krone"],
+  ["PLN", "Polish Zloty"], ["CZK", "Czech Koruna"], ["HUF", "Hungarian Forint"],
+];
+
+let activeCurrency = "USD";
+let activeRate = 1; // multiply USD value by this to get value in activeCurrency
 
 const fmt = (n, opts = {}) => {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
@@ -11,13 +32,37 @@ const fmt = (n, opts = {}) => {
     maximumFractionDigits: opts.digits ?? 2,
   });
 };
-const fmtUsd = (n) => fmt(n, { currency: "USD" });
+
+const fmtMoney = (usdValue) => {
+  if (usdValue === null || usdValue === undefined || Number.isNaN(usdValue)) return "—";
+  try {
+    return (usdValue * activeRate).toLocaleString(undefined, {
+      style: "currency",
+      currency: activeCurrency,
+    });
+  } catch {
+    return fmt(usdValue * activeRate, { digits: 2 }) + " " + activeCurrency;
+  }
+};
+
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const TYPE_COLORS = { stock: "#79c0ff", etf: "#d2a8ff", crypto: "#ffa657", cash: "#56d364" };
 
 // --- storage ----------------------------------------------------------------
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") || {}; }
+  catch { return {}; }
+}
+function saveSettings(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+function getDisplayCurrency() { return loadSettings().displayCurrency || "USD"; }
+function setDisplayCurrency(code) {
+  const s = loadSettings();
+  s.displayCurrency = code;
+  saveSettings(s);
+}
 
 function loadHoldings() {
   try {
@@ -107,6 +152,56 @@ async function getPrice(symbol, type) {
   return price;
 }
 
+// --- FX rates ---------------------------------------------------------------
+
+const fxCache = new Map(); // "USD->EUR" -> {at, rate}
+
+async function fetchFxRate(from, to) {
+  if (from === to) return 1;
+  // Frankfurter (ECB-backed, ~30 major currencies)
+  try {
+    const r = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`);
+    if (r.ok) {
+      const data = await r.json();
+      const rate = data?.rates?.[to];
+      if (typeof rate === "number" && rate > 0) return rate;
+    }
+  } catch {}
+  // Fallback: fawazahmed currency-api on jsDelivr (covers virtually every code)
+  try {
+    const r = await fetch(
+      `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${from.toLowerCase()}.json`
+    );
+    if (r.ok) {
+      const data = await r.json();
+      const rate = data?.[from.toLowerCase()]?.[to.toLowerCase()];
+      if (typeof rate === "number" && rate > 0) return rate;
+    }
+  } catch {}
+  return null;
+}
+
+async function getFxRate(from, to) {
+  if (from === to) return 1;
+  const key = `${from}->${to}`;
+  const cached = fxCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.at < FX_TTL_MS) return cached.rate;
+  const rate = await fetchFxRate(from, to);
+  if (rate !== null) fxCache.set(key, { at: now, rate });
+  return rate;
+}
+
+async function ensureFx() {
+  activeCurrency = getDisplayCurrency();
+  if (activeCurrency === "USD") {
+    activeRate = 1;
+    return;
+  }
+  const rate = await getFxRate("USD", activeCurrency);
+  activeRate = rate ?? 1; // fall back to 1 (renders the USD number under the chosen label)
+}
+
 // --- rendering --------------------------------------------------------------
 
 function compute(holding, price) {
@@ -128,10 +223,10 @@ function renderRow(h) {
       <td><strong>${escapeHtml(h.symbol)}</strong>${h.note ? `<div style="color:var(--muted);font-size:0.78rem">${escapeHtml(h.note)}</div>` : ""}</td>
       <td><span class="tag ${escapeHtml(h.asset_type)}">${escapeHtml(h.asset_type)}</span></td>
       <td class="num">${qtyDisplay}</td>
-      <td class="num">${h.cost_basis ? fmtUsd(h.cost_basis) : "—"}</td>
-      <td class="num">${h.price !== null && h.price !== undefined ? fmtUsd(h.price) : '<span style="color:var(--yellow)">n/a</span>'}</td>
-      <td class="num"><strong>${fmtUsd(h.market_value)}</strong></td>
-      <td class="num gain ${gainClass}">${sign}${fmtUsd(h.gain)}<div style="font-size:0.78rem">${sign}${fmt(h.gain_pct)}%</div></td>
+      <td class="num">${h.cost_basis ? fmtMoney(h.cost_basis) : "—"}</td>
+      <td class="num">${h.price !== null && h.price !== undefined ? fmtMoney(h.price) : '<span style="color:var(--yellow)">n/a</span>'}</td>
+      <td class="num"><strong>${fmtMoney(h.market_value)}</strong></td>
+      <td class="num gain ${gainClass}">${sign}${fmtMoney(h.gain)}<div style="font-size:0.78rem">${sign}${fmt(h.gain_pct)}%</div></td>
       <td class="num">
         <button class="btn icon" data-action="edit">✎</button>
         <button class="btn icon danger" data-action="delete">✕</button>
@@ -161,13 +256,14 @@ function renderBreakdown(breakdown, total) {
 }
 
 async function refresh() {
+  await ensureFx();
   const body = $("#holdings-body");
   const holdings = loadHoldings();
   if (!holdings.length) {
     body.innerHTML = '<tr><td colspan="8" class="empty">No holdings yet — tap "Add holding" to start.</td></tr>';
-    $("#net-worth").textContent = fmtUsd(0);
-    $("#invested").textContent = fmtUsd(0);
-    $("#total-gain").textContent = fmtUsd(0);
+    $("#net-worth").textContent = fmtMoney(0);
+    $("#invested").textContent = fmtMoney(0);
+    $("#total-gain").textContent = fmtMoney(0);
     $("#net-gain").textContent = "";
     renderBreakdown({}, 0);
     window.__holdings = [];
@@ -201,10 +297,10 @@ async function refresh() {
     return acc;
   }, {});
 
-  $("#net-worth").textContent = fmtUsd(totals.market_value);
-  $("#invested").textContent = fmtUsd(totals.invested);
+  $("#net-worth").textContent = fmtMoney(totals.market_value);
+  $("#invested").textContent = fmtMoney(totals.invested);
   const gainEl = $("#total-gain");
-  gainEl.textContent = `${totals.gain >= 0 ? "+" : ""}${fmtUsd(totals.gain)}`;
+  gainEl.textContent = `${totals.gain >= 0 ? "+" : ""}${fmtMoney(totals.gain)}`;
   gainEl.style.color = totals.gain >= 0 ? "var(--green)" : "var(--red)";
   const sub = $("#net-gain");
   sub.textContent = totals.invested ? `${totals.gain >= 0 ? "+" : ""}${fmt(totals.gain_pct)}% all-time` : "";
@@ -362,6 +458,17 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#import-btn").addEventListener("click", () => $("#import-file").click());
   $("#import-file").addEventListener("change", (e) => { if (e.target.files[0]) importPortfolio(e.target.files[0]); e.target.value = ""; });
   $("#clear-btn").addEventListener("click", clearAll);
+
+  const sel = $("#currency-select");
+  sel.innerHTML = SUPPORTED_CURRENCIES.map(([code, name]) =>
+    `<option value="${code}">${code} — ${name}</option>`
+  ).join("");
+  sel.value = getDisplayCurrency();
+  sel.addEventListener("change", async () => {
+    setDisplayCurrency(sel.value);
+    fxCache.clear();
+    await refresh();
+  });
 
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closeMenu(); } });
 
