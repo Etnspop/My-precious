@@ -100,6 +100,17 @@ main {
 }
 
 .panel-head h2 { margin: 0; font-size: 1.05rem; }
+.panel-head-actions { display: flex; gap: 8px; align-items: center; }
+.panel-head-actions select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  outline: none;
+}
+.panel-head-actions select:focus { border-color: var(--accent); }
 
 .chart-panel { padding-bottom: 14px; }
 .chart-controls { display: flex; gap: 6px; align-items: center; }

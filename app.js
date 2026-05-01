@@ -360,11 +360,19 @@ async function refresh() {
     holdings.map(async (h) => compute(h, await getPrice(h.symbol, h.asset_type)))
   );
 
-  body.innerHTML = computed
-    .slice()
-    .sort((a, b) => a.asset_type.localeCompare(b.asset_type) || a.symbol.localeCompare(b.symbol))
-    .map(renderRow)
-    .join("");
+  // Filter table rows by category (the summary cards and chart still
+  // reflect the full portfolio).
+  const filter = (loadSettings().holdingsFilter || "all");
+  const visible = filter === "all" ? computed : computed.filter((h) => h.asset_type === filter);
+  if (!visible.length) {
+    body.innerHTML = `<tr><td colspan="8" class="empty">No ${escapeHtml(filter)} holdings.</td></tr>`;
+  } else {
+    body.innerHTML = visible
+      .slice()
+      .sort((a, b) => a.asset_type.localeCompare(b.asset_type) || a.symbol.localeCompare(b.symbol))
+      .map(renderRow)
+      .join("");
+  }
 
   const totals = computed.reduce(
     (acc, h) => {
@@ -1176,6 +1184,16 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   setupAutocomplete();
+
+  // Holdings category filter
+  const filterSel = $("#holdings-filter");
+  filterSel.value = loadSettings().holdingsFilter || "all";
+  filterSel.addEventListener("change", () => {
+    const s = loadSettings();
+    s.holdingsFilter = filterSel.value;
+    saveSettings(s);
+    refresh();
+  });
 
   // Chart controls
   document.querySelectorAll(".range-btn").forEach((b) => {
