@@ -50,6 +50,17 @@ const escapeHtml = (s) =>
 
 const TYPE_COLORS = { stock: "#79c0ff", etf: "#d2a8ff", crypto: "#ffa657", cash: "#56d364" };
 
+// Bounded fetch — if a remote API hangs, abort it after timeoutMs so the
+// caller's fallback chain (and the surrounding Promise.all) can keep moving.
+// Without this, browsers will sit on a stalled connection for a long time
+// and the holdings list stays stuck on "Loading prices…".
+function tfetch(url, opts = {}, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...opts, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 // --- storage ----------------------------------------------------------------
 
 function loadSettings() {
@@ -107,7 +118,7 @@ async function resolveCoinGeckoId(symbol) {
   if (!key) return null;
   if (cgIdCache.has(key)) return cgIdCache.get(key);
   try {
-    const r = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(key)}`);
+    const r = await tfetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(key)}`);
     if (r.ok) {
       const data = await r.json();
       const list = data.coins || [];
@@ -129,7 +140,7 @@ async function fetchCryptoPrice(symbol) {
   let pair = base;
   if (!/(USDT|USD|BUSD|USDC)$/.test(pair)) pair += "USDT";
   try {
-    const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(pair)}`);
+    const r = await tfetch(`https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(pair)}`);
     if (r.ok) {
       const data = await r.json();
       const p = parseFloat(data.price);
@@ -140,7 +151,7 @@ async function fetchCryptoPrice(symbol) {
   const id = await resolveCoinGeckoId(symbol);
   if (id) {
     try {
-      const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(id)}&vs_currencies=usd`);
+      const r = await tfetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(id)}&vs_currencies=usd`);
       if (r.ok) {
         const data = await r.json();
         const p = data?.[id]?.usd;
@@ -155,7 +166,7 @@ async function fetchCoinGeckoHistory(symbol, days) {
   const id = await resolveCoinGeckoId(symbol);
   if (!id) return [];
   try {
-    const r = await fetch(
+    const r = await tfetch(
       `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${days}`
     );
     if (r.ok) {
@@ -180,7 +191,7 @@ const CORS_PROXIES = [
 async function fetchYahooPrice(symbol, viaProxy) {
   const target = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
   const url = viaProxy ? viaProxy(target) : target;
-  const r = await fetch(url);
+  const r = await tfetch(url);
   if (!r.ok) return null;
   const data = await r.json();
   const meta = data?.chart?.result?.[0]?.meta;
@@ -192,7 +203,7 @@ async function fetchStooqPrice(symbol, viaProxy) {
   const ticker = symbol.toLowerCase().includes(".") ? symbol.toLowerCase() : `${symbol.toLowerCase()}.us`;
   const target = `https://stooq.com/q/l/?s=${ticker}&f=sd2t2c&h&e=csv`;
   const url = viaProxy ? viaProxy(target) : target;
-  const r = await fetch(url);
+  const r = await tfetch(url);
   if (!r.ok) return null;
   const text = await r.text();
   const lines = text.trim().split(/\r?\n/);
@@ -234,7 +245,7 @@ async function fetchFxRate(from, to) {
   if (from === to) return 1;
   // Frankfurter (ECB-backed, ~30 major currencies)
   try {
-    const r = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`);
+    const r = await tfetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`);
     if (r.ok) {
       const data = await r.json();
       const rate = data?.rates?.[to];
@@ -243,7 +254,7 @@ async function fetchFxRate(from, to) {
   } catch {}
   // Fallback: fawazahmed currency-api on jsDelivr (covers virtually every code)
   try {
-    const r = await fetch(
+    const r = await tfetch(
       `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${from.toLowerCase()}.json`
     );
     if (r.ok) {
@@ -415,7 +426,7 @@ let chartState = {
 
 async function fetchYahooHistory(symbol, range) {
   const target = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
-  const fetchers = [() => fetch(target), ...CORS_PROXIES.map((p) => () => fetch(p(target)))];
+  const fetchers = [() => tfetch(target), ...CORS_PROXIES.map((p) => () => tfetch(p(target)))];
   for (const get of fetchers) {
     try {
       const r = await get();
@@ -442,7 +453,7 @@ async function fetchBinanceHistory(symbol, range) {
   if (!/(USDT|USD|BUSD|USDC)$/.test(pair)) pair += "USDT";
   const limit = Math.min(1000, rangeDays(range));
   try {
-    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1d&limit=${limit}`);
+    const r = await tfetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1d&limit=${limit}`);
     if (r.ok) {
       const data = await r.json();
       return data.map((k) => ({ t: k[0], v: parseFloat(k[4]) })).filter((p) => !isNaN(p.v) && p.v > 0);
@@ -707,7 +718,7 @@ const HAS_HANGUL = /[가-힯]/;
 
 async function fetchYahooSearchOnce(query, lang, region) {
   const target = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&enableFuzzyQuery=true&lang=${lang}&region=${region}`;
-  const fetchers = [() => fetch(target), ...CORS_PROXIES.map((p) => () => fetch(p(target)))];
+  const fetchers = [() => tfetch(target), ...CORS_PROXIES.map((p) => () => tfetch(p(target)))];
   for (const get of fetchers) {
     try {
       const r = await get();
@@ -758,7 +769,7 @@ async function searchYahooSymbols(query) {
 
 async function searchCryptoSymbols(query) {
   try {
-    const r = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`);
+    const r = await tfetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`);
     if (!r.ok) return [];
     const data = await r.json();
     return (data.coins || []).slice(0, 10).map((c) => ({
