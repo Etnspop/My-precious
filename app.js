@@ -310,7 +310,11 @@ function compute(holding, price) {
   const qty = Number(holding.quantity) || 0;
   const cost = Number(holding.cost_basis) || 0;
   const market_value = (price ?? 0) * qty;
-  const invested = cost * qty;
+  // For cash, "buying" 1 unit of currency for 1 unit of currency means
+  // there's no cost-basis vs price spread to track — invested equals the
+  // current value so gain stays at 0. (Stale stored cost_basis from older
+  // versions of the form would otherwise produce a giant fake loss.)
+  const invested = holding.asset_type === "cash" ? market_value : cost * qty;
   const gain = market_value - invested;
   const gain_pct = invested ? (gain / invested) * 100 : 0;
   return { ...holding, price, market_value, invested, gain, gain_pct };
@@ -327,7 +331,7 @@ function renderRow(h) {
       <td><strong>${escapeHtml(h.symbol)}</strong>${subline ? `<div style="color:var(--muted);font-size:0.78rem">${escapeHtml(subline)}</div>` : ""}</td>
       <td><span class="tag ${escapeHtml(h.asset_type)}">${escapeHtml(h.asset_type)}</span></td>
       <td class="num">${qtyDisplay}</td>
-      <td class="num">${h.cost_basis ? fmtMoney(h.cost_basis) : "—"}</td>
+      <td class="num">${h.asset_type === "cash" ? "—" : (h.cost_basis ? fmtMoney(h.cost_basis) : "—")}</td>
       <td class="num">${h.price !== null && h.price !== undefined ? fmtMoney(h.price) : '<span style="color:var(--yellow)">n/a</span>'}</td>
       <td class="num"><strong>${fmtMoney(h.market_value)}</strong></td>
       <td class="num gain ${gainClass}">${sign}${fmtMoney(h.gain)}<div style="font-size:0.78rem">${sign}${fmt(h.gain_pct)}%</div></td>
