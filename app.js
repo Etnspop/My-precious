@@ -783,11 +783,145 @@ async function searchCryptoSymbols(query) {
   }
 }
 
+// Bundled mini-database of major Asian stocks with their native-language
+// names. Yahoo's search endpoint frequently fails to surface stocks when
+// queried in Chinese/Japanese/Korean (its index is largely English-only),
+// so this keeps CJK autocomplete usable and instant. Each entry lists
+// multiple name variants — traditional + simplified + romanized — so the
+// same stock matches no matter how the user types it.
+const ASIAN_STOCKS_DB = [
+  // Taiwan (TWSE)
+  { symbol: "2330.TW", names: ["台積電", "台积电", "TSMC", "Taiwan Semiconductor"], exchange: "TWSE" },
+  { symbol: "2317.TW", names: ["鴻海", "鸿海", "Hon Hai", "Foxconn"], exchange: "TWSE" },
+  { symbol: "2454.TW", names: ["聯發科", "联发科", "MediaTek"], exchange: "TWSE" },
+  { symbol: "2412.TW", names: ["中華電", "中华电", "Chunghwa Telecom"], exchange: "TWSE" },
+  { symbol: "2308.TW", names: ["台達電", "台达电", "Delta Electronics"], exchange: "TWSE" },
+  { symbol: "1301.TW", names: ["台塑", "Formosa Plastics"], exchange: "TWSE" },
+  { symbol: "1303.TW", names: ["南亞", "南亚", "Nan Ya Plastics"], exchange: "TWSE" },
+  { symbol: "2002.TW", names: ["中鋼", "中钢", "China Steel"], exchange: "TWSE" },
+  { symbol: "2881.TW", names: ["富邦金", "Fubon Financial"], exchange: "TWSE" },
+  { symbol: "2882.TW", names: ["國泰金", "国泰金", "Cathay Financial"], exchange: "TWSE" },
+  { symbol: "2891.TW", names: ["中信金", "CTBC Financial"], exchange: "TWSE" },
+  { symbol: "2886.TW", names: ["兆豐金", "兆丰金", "Mega Financial"], exchange: "TWSE" },
+  { symbol: "2884.TW", names: ["玉山金", "E.Sun Financial"], exchange: "TWSE" },
+  { symbol: "2885.TW", names: ["元大金", "Yuanta Financial"], exchange: "TWSE" },
+  { symbol: "1216.TW", names: ["統一", "统一", "Uni-President"], exchange: "TWSE" },
+  { symbol: "1101.TW", names: ["台泥", "Taiwan Cement"], exchange: "TWSE" },
+  { symbol: "2353.TW", names: ["宏碁", "Acer"], exchange: "TWSE" },
+  { symbol: "2357.TW", names: ["華碩", "华硕", "Asus"], exchange: "TWSE" },
+  { symbol: "2382.TW", names: ["廣達", "广达", "Quanta Computer"], exchange: "TWSE" },
+  { symbol: "2912.TW", names: ["統一超", "统一超", "President Chain Store", "7-Eleven"], exchange: "TWSE" },
+  { symbol: "2207.TW", names: ["和泰車", "和泰车", "Hotai Motor"], exchange: "TWSE" },
+  { symbol: "2303.TW", names: ["聯電", "联电", "UMC"], exchange: "TWSE" },
+  { symbol: "2603.TW", names: ["長榮", "长荣", "Evergreen Marine"], exchange: "TWSE" },
+  { symbol: "2615.TW", names: ["萬海", "万海", "Wan Hai Lines"], exchange: "TWSE" },
+  { symbol: "3008.TW", names: ["大立光", "Largan Precision"], exchange: "TWSE" },
+  { symbol: "6505.TW", names: ["台塑化", "Formosa Petrochemical"], exchange: "TWSE" },
+  { symbol: "3711.TW", names: ["日月光投控", "日月光投控", "ASE Technology"], exchange: "TWSE" },
+  // Hong Kong (HKEX)
+  { symbol: "0700.HK", names: ["騰訊控股", "腾讯控股", "Tencent"], exchange: "HKEX" },
+  { symbol: "9988.HK", names: ["阿里巴巴", "Alibaba"], exchange: "HKEX" },
+  { symbol: "0941.HK", names: ["中國移動", "中国移动", "China Mobile"], exchange: "HKEX" },
+  { symbol: "1299.HK", names: ["友邦保險", "友邦保险", "AIA"], exchange: "HKEX" },
+  { symbol: "0005.HK", names: ["滙豐控股", "汇丰控股", "HSBC Holdings"], exchange: "HKEX" },
+  { symbol: "0388.HK", names: ["香港交易所", "HK Exchanges", "HKEX"], exchange: "HKEX" },
+  { symbol: "0001.HK", names: ["長和", "长和", "CK Hutchison"], exchange: "HKEX" },
+  { symbol: "0011.HK", names: ["恒生銀行", "恒生银行", "Hang Seng Bank"], exchange: "HKEX" },
+  { symbol: "0016.HK", names: ["新鴻基地產", "新鸿基地产", "Sun Hung Kai Properties"], exchange: "HKEX" },
+  { symbol: "0066.HK", names: ["港鐵公司", "港铁公司", "MTR"], exchange: "HKEX" },
+  { symbol: "0175.HK", names: ["吉利汽車", "吉利汽车", "Geely Auto"], exchange: "HKEX" },
+  { symbol: "0288.HK", names: ["萬洲國際", "万洲国际", "WH Group"], exchange: "HKEX" },
+  { symbol: "0386.HK", names: ["中國石油化工", "中国石油化工", "Sinopec"], exchange: "HKEX" },
+  { symbol: "0688.HK", names: ["中國海外發展", "中国海外发展", "China Overseas Land"], exchange: "HKEX" },
+  { symbol: "0857.HK", names: ["中國石油", "中国石油", "PetroChina"], exchange: "HKEX" },
+  { symbol: "0883.HK", names: ["中國海洋石油", "中国海洋石油", "CNOOC"], exchange: "HKEX" },
+  { symbol: "0939.HK", names: ["建設銀行", "建设银行", "CCB"], exchange: "HKEX" },
+  { symbol: "1024.HK", names: ["快手", "Kuaishou"], exchange: "HKEX" },
+  { symbol: "1113.HK", names: ["長實集團", "长实集团", "CK Asset"], exchange: "HKEX" },
+  { symbol: "1211.HK", names: ["比亞迪股份", "比亚迪股份", "BYD"], exchange: "HKEX" },
+  { symbol: "1398.HK", names: ["工商銀行", "工商银行", "ICBC"], exchange: "HKEX" },
+  { symbol: "1810.HK", names: ["小米集團", "小米集团", "Xiaomi"], exchange: "HKEX" },
+  { symbol: "2020.HK", names: ["安踏體育", "安踏体育", "Anta Sports"], exchange: "HKEX" },
+  { symbol: "2318.HK", names: ["中國平安", "中国平安", "Ping An Insurance"], exchange: "HKEX" },
+  { symbol: "2382.HK", names: ["舜宇光學科技", "舜宇光学科技", "Sunny Optical"], exchange: "HKEX" },
+  { symbol: "2628.HK", names: ["中國人壽", "中国人寿", "China Life"], exchange: "HKEX" },
+  { symbol: "3690.HK", names: ["美團", "美团", "Meituan"], exchange: "HKEX" },
+  { symbol: "3988.HK", names: ["中國銀行", "中国银行", "Bank of China"], exchange: "HKEX" },
+  { symbol: "6862.HK", names: ["海底撈", "海底捞", "Haidilao"], exchange: "HKEX" },
+  { symbol: "9618.HK", names: ["京東集團", "京东集团", "JD.com"], exchange: "HKEX" },
+  { symbol: "9999.HK", names: ["網易", "网易", "NetEase"], exchange: "HKEX" },
+  { symbol: "9626.HK", names: ["嗶哩嗶哩", "哔哩哔哩", "Bilibili"], exchange: "HKEX" },
+  { symbol: "9961.HK", names: ["攜程集團", "携程集团", "Trip.com Group"], exchange: "HKEX" },
+  // Mainland China (Shanghai / Shenzhen — Yahoo uses .SS / .SZ)
+  { symbol: "600519.SS", names: ["貴州茅台", "贵州茅台", "Kweichow Moutai"], exchange: "SSE" },
+  { symbol: "601398.SS", names: ["工商銀行", "工商银行", "ICBC"], exchange: "SSE" },
+  { symbol: "600036.SS", names: ["招商銀行", "招商银行", "China Merchants Bank"], exchange: "SSE" },
+  { symbol: "601318.SS", names: ["中國平安", "中国平安", "Ping An"], exchange: "SSE" },
+  { symbol: "600028.SS", names: ["中國石化", "中国石化", "Sinopec"], exchange: "SSE" },
+  { symbol: "601857.SS", names: ["中國石油", "中国石油", "PetroChina"], exchange: "SSE" },
+  { symbol: "600276.SS", names: ["恆瑞醫藥", "恒瑞医药", "Hengrui Medicine"], exchange: "SSE" },
+  { symbol: "600887.SS", names: ["伊利股份", "Yili"], exchange: "SSE" },
+  { symbol: "000858.SZ", names: ["五糧液", "五粮液", "Wuliangye"], exchange: "SZSE" },
+  { symbol: "000333.SZ", names: ["美的集團", "美的集团", "Midea Group"], exchange: "SZSE" },
+  // Japan (TSE)
+  { symbol: "7203.T", names: ["トヨタ自動車", "トヨタ", "豐田汽車", "丰田汽车", "Toyota"], exchange: "TSE" },
+  { symbol: "6758.T", names: ["ソニーグループ", "ソニー", "索尼", "Sony"], exchange: "TSE" },
+  { symbol: "9984.T", names: ["ソフトバンクグループ", "ソフトバンク", "軟銀", "软银", "SoftBank Group"], exchange: "TSE" },
+  { symbol: "6861.T", names: ["キーエンス", "Keyence"], exchange: "TSE" },
+  { symbol: "7974.T", names: ["任天堂", "Nintendo"], exchange: "TSE" },
+  { symbol: "8035.T", names: ["東京エレクトロン", "Tokyo Electron"], exchange: "TSE" },
+  { symbol: "9432.T", names: ["日本電信電話", "NTT"], exchange: "TSE" },
+  { symbol: "8306.T", names: ["三菱UFJフィナンシャル・グループ", "三菱UFJ", "MUFG"], exchange: "TSE" },
+  { symbol: "9983.T", names: ["ファーストリテイリング", "Fast Retailing", "Uniqlo"], exchange: "TSE" },
+  { symbol: "6098.T", names: ["リクルートホールディングス", "Recruit Holdings"], exchange: "TSE" },
+  // South Korea (KRX)
+  { symbol: "005930.KS", names: ["삼성전자", "三星電子", "三星电子", "Samsung Electronics"], exchange: "KRX" },
+  { symbol: "000660.KS", names: ["SK하이닉스", "SK海力士", "SK Hynix"], exchange: "KRX" },
+  { symbol: "035420.KS", names: ["NAVER", "네이버", "Naver"], exchange: "KRX" },
+  { symbol: "005490.KS", names: ["POSCO홀딩스", "浦項製鐵", "POSCO Holdings"], exchange: "KRX" },
+  { symbol: "207940.KS", names: ["삼성바이오로직스", "Samsung Biologics"], exchange: "KRX" },
+  { symbol: "035720.KS", names: ["카카오", "Kakao"], exchange: "KRX" },
+  { symbol: "051910.KS", names: ["LG화학", "LG Chem"], exchange: "KRX" },
+];
+
+function searchLocalAsianDB(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const out = [];
+  for (const s of ASIAN_STOCKS_DB) {
+    if (
+      s.symbol.toLowerCase().includes(q) ||
+      s.names.some((n) => n.toLowerCase().includes(q))
+    ) {
+      out.push({
+        symbol: s.symbol,
+        name: s.names[0],
+        asset_type: "stock",
+        exchange: s.exchange,
+      });
+      if (out.length >= 10) break;
+    }
+  }
+  return out;
+}
+
 async function searchSymbols(query, type) {
   if (!query) return [];
   if (type === "crypto") return searchCryptoSymbols(query);
   if (type === "cash") return [];
-  return searchYahooSymbols(query);
+  // For CJK queries, hit the bundled DB first (instant, reliable). Yahoo's
+  // search index is largely English-only and frequently returns nothing
+  // when queried in Chinese/Japanese/Korean — using it as a primary source
+  // there left users with an empty dropdown.
+  if (HAS_CJK.test(query)) {
+    const local = searchLocalAsianDB(query);
+    if (local.length) return local;
+  }
+  const yahoo = await searchYahooSymbols(query);
+  if (yahoo.length || !HAS_CJK.test(query)) return yahoo;
+  // Last-resort: even non-empty CJK queries fall back to local DB for any
+  // partial matches Yahoo missed.
+  return searchLocalAsianDB(query);
 }
 
 let _suggestTimer = null;
