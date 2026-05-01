@@ -1043,11 +1043,30 @@ function setupAutocomplete() {
   input.addEventListener("blur", () => { setTimeout(hide, 180); });
 
   typeSelect.addEventListener("change", () => {
+    applyFormModeForType(typeSelect.value);
     if (input.value.trim().length >= 1) runSearch();
   });
 }
 
 // --- form / CRUD ------------------------------------------------------------
+
+function applyFormModeForType(type) {
+  const isCash = type === "cash";
+  const form = $("#holding-form");
+  form.classList.toggle("cash-mode", isCash);
+  // Relabel + retarget the placeholder so the cash flow reads naturally.
+  const symLabel = $("#f-symbol-label");
+  const qtyLabel = $("#f-qty-label");
+  if (isCash) {
+    symLabel.firstChild.nodeValue = "Currency";
+    $("#f-symbol").placeholder = "USD, EUR, JPY, HKD, TWD…";
+    qtyLabel.firstChild.nodeValue = "Amount";
+  } else {
+    symLabel.firstChild.nodeValue = "Symbol";
+    $("#f-symbol").placeholder = "AAPL, BTC, 台積電, 7203.T…";
+    qtyLabel.firstChild.nodeValue = "Quantity";
+  }
+}
 
 function openModal(holding) {
   $("#modal").classList.remove("hidden");
@@ -1060,6 +1079,7 @@ function openModal(holding) {
   $("#f-cost").value = holding?.cost_basis ?? 0;
   $("#f-currency").value = holding?.currency || "USD";
   $("#f-note").value = holding?.note || "";
+  applyFormModeForType($("#f-type").value);
   setTimeout(() => $("#f-symbol").focus(), 50);
 }
 
@@ -1080,12 +1100,17 @@ function validate(payload) {
 function submitForm(e) {
   e.preventDefault();
   const id = $("#f-id").value;
+  const type = $("#f-type").value;
+  const symbol = $("#f-symbol").value.trim().toUpperCase();
   const payload = {
-    symbol: $("#f-symbol").value.trim().toUpperCase(),
-    asset_type: $("#f-type").value,
+    symbol,
+    asset_type: type,
     quantity: parseFloat($("#f-qty").value),
-    cost_basis: parseFloat($("#f-cost").value || "0"),
-    currency: ($("#f-currency").value.trim() || "USD").toUpperCase(),
+    // Cash holdings always have cost basis 1 (1 unit of currency = 1 unit
+    // of currency) and the symbol IS the currency, so we don't ask the
+    // user for either of those.
+    cost_basis: type === "cash" ? 1 : parseFloat($("#f-cost").value || "0"),
+    currency: type === "cash" ? symbol : ($("#f-currency").value.trim() || "USD").toUpperCase(),
     note: $("#f-note").value.trim() || null,
   };
   const err = validate(payload);
