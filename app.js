@@ -702,15 +702,11 @@ function detectYahooLocale() {
 }
 
 const HAS_CJK = /[㐀-鿿぀-ヿ가-힯]/;
+const HAS_HIRAKATA = /[぀-ヿ]/;
+const HAS_HANGUL = /[가-힯]/;
 
-async function searchYahooSymbols(query) {
-  const browserLoc = detectYahooLocale();
-  // If the query contains CJK characters, force a CJK locale so Yahoo
-  // returns Asian-listed stocks (e.g. typing 台 should surface 2330.TW 台積電).
-  const loc = HAS_CJK.test(query) && browserLoc.lang === "en-US"
-    ? { lang: "zh-TW", region: "TW" }
-    : browserLoc;
-  const target = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&lang=${loc.lang}&region=${loc.region}`;
+async function fetchYahooSearchOnce(query, lang, region) {
+  const target = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&enableFuzzyQuery=true&lang=${lang}&region=${region}`;
   const fetchers = [() => fetch(target), ...CORS_PROXIES.map((p) => () => fetch(p(target)))];
   for (const get of fetchers) {
     try {
@@ -723,7 +719,7 @@ async function searchYahooSymbols(query) {
         const t = (q.quoteType || "").toUpperCase();
         let assetType = null;
         if (t === "ETF") assetType = "etf";
-        else if (t === "EQUITY" || t === "MUTUALFUND") assetType = "stock";
+        else if (t === "EQUITY" || t === "MUTUALFUND" || t === "INDEX") assetType = "stock";
         else if (t === "CRYPTOCURRENCY") assetType = "crypto";
         if (!assetType || !q.symbol) continue;
         out.push({
@@ -737,6 +733,27 @@ async function searchYahooSymbols(query) {
     } catch {}
   }
   return [];
+}
+
+async function searchYahooSymbols(query) {
+  const browserLoc = detectYahooLocale();
+  // For CJK queries, walk through several regional locales until one returns
+  // results — Yahoo's search behavior varies by region and a single locale
+  // (e.g. zh-HK) sometimes fails to surface stocks listed in another market
+  // (e.g. 台積電 on TWSE). Try the most relevant region per script first.
+  if (HAS_CJK.test(query)) {
+    const tries = HAS_HIRAKATA.test(query)
+      ? [["ja-JP", "JP"], ["zh-TW", "TW"], ["zh-HK", "HK"], ["en-US", "US"]]
+      : HAS_HANGUL.test(query)
+      ? [["ko-KR", "KR"], ["zh-TW", "TW"], ["en-US", "US"]]
+      : [["zh-TW", "TW"], ["zh-HK", "HK"], ["zh-CN", "CN"], ["ja-JP", "JP"], ["en-US", "US"]];
+    for (const [lang, region] of tries) {
+      const out = await fetchYahooSearchOnce(query, lang, region);
+      if (out.length) return out;
+    }
+    return [];
+  }
+  return fetchYahooSearchOnce(query, browserLoc.lang, browserLoc.region);
 }
 
 async function searchCryptoSymbols(query) {
