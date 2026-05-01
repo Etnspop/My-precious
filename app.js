@@ -88,6 +88,13 @@ function newId() {
 
 const priceCache = new Map(); // key: `${type}:${symbol}` -> {at, price}
 
+// Strip Yahoo-style "-USD" / "/USD" suffix from a crypto symbol so we can
+// reliably build the right Binance pair and the right CoinGecko search.
+// Examples: "BTC-USD" -> "BTC", "ETH/USDT" -> "ETH", "DOGE" -> "DOGE".
+function normalizeCryptoSymbol(symbol) {
+  return String(symbol || "").toUpperCase().replace(/[-/](USDT|USDC|BUSD|USD)$/, "");
+}
+
 // CoinGecko expects coin IDs ("bitcoin"), not symbols ("BTC"). Resolve the
 // symbol to an ID via /search and cache the mapping for the session. The
 // previous version queried `?ids=btc` and never returned a price, so when
@@ -96,7 +103,7 @@ const cgIdCache = new Map();
 
 async function resolveCoinGeckoId(symbol) {
   if (!symbol) return null;
-  const key = symbol.toUpperCase().replace(/(USDT|USDC|BUSD|USD)$/, "");
+  const key = normalizeCryptoSymbol(symbol);
   if (!key) return null;
   if (cgIdCache.has(key)) return cgIdCache.get(key);
   try {
@@ -118,7 +125,8 @@ async function resolveCoinGeckoId(symbol) {
 }
 
 async function fetchCryptoPrice(symbol) {
-  let pair = symbol.toUpperCase();
+  const base = normalizeCryptoSymbol(symbol);
+  let pair = base;
   if (!/(USDT|USD|BUSD|USDC)$/.test(pair)) pair += "USDT";
   try {
     const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(pair)}`);
@@ -429,7 +437,8 @@ async function fetchYahooHistory(symbol, range) {
 }
 
 async function fetchBinanceHistory(symbol, range) {
-  let pair = symbol.toUpperCase();
+  const base = normalizeCryptoSymbol(symbol);
+  let pair = base;
   if (!/(USDT|USD|BUSD|USDC)$/.test(pair)) pair += "USDT";
   const limit = Math.min(1000, rangeDays(range));
   try {
@@ -450,7 +459,7 @@ async function fetchHistory(symbol, type, range) {
   let points = [];
   if (type === "crypto") {
     points = await fetchBinanceHistory(symbol, range);
-    if (!points.length) points = await fetchYahooHistory(`${symbol.toUpperCase()}-USD`, range);
+    if (!points.length) points = await fetchYahooHistory(`${normalizeCryptoSymbol(symbol)}-USD`, range);
     if (!points.length) points = await fetchCoinGeckoHistory(symbol, rangeDays(range));
   } else {
     points = await fetchYahooHistory(symbol, range);
