@@ -188,6 +188,11 @@ const CORS_PROXIES = [
   (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`,
 ];
 
+// Yahoo's chart endpoint returns prices in the listing's native currency
+// (USD for AAPL, TWD for 2317.TW, JPY for 7203.T, etc.). We always store and
+// compute internally in USD, so convert non-USD prices via the FX cache.
+// Returns the USD-equivalent price, or null if either the fetch or the FX
+// conversion fails.
 async function fetchYahooPrice(symbol, viaProxy) {
   const target = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
   const url = viaProxy ? viaProxy(target) : target;
@@ -196,7 +201,12 @@ async function fetchYahooPrice(symbol, viaProxy) {
   const data = await r.json();
   const meta = data?.chart?.result?.[0]?.meta;
   const p = meta?.regularMarketPrice ?? meta?.previousClose;
-  return typeof p === "number" ? p : null;
+  if (typeof p !== "number") return null;
+  const currency = (meta.currency || "USD").toUpperCase();
+  if (currency === "USD") return p;
+  const rate = await getFxRate(currency, "USD");
+  if (rate === null) return null;
+  return p * rate;
 }
 
 async function fetchStooqPrice(symbol, viaProxy) {
@@ -458,12 +468,24 @@ async function fetchYahooHistory(symbol, range) {
       const data = await r.json();
       const result = data?.chart?.result?.[0];
       if (!result) continue;
+      const currency = (result.meta?.currency || "USD").toUpperCase();
+      // Convert non-USD historical points to USD using the *current* FX
+      // rate (we don't have historical FX). The chart shape is slightly off
+      // versus reality because rates fluctuate, but magnitude is correct.
+      let fxToUSD = 1;
+      if (currency !== "USD") {
+        const rate = await getFxRate(currency, "USD");
+        if (rate === null) continue;
+        fxToUSD = rate;
+      }
       const ts = result.timestamp || [];
       const closes = result.indicators?.quote?.[0]?.close || [];
       const points = [];
       for (let i = 0; i < ts.length; i++) {
         const v = closes[i];
-        if (typeof v === "number" && !isNaN(v) && v > 0) points.push({ t: ts[i] * 1000, v });
+        if (typeof v === "number" && !isNaN(v) && v > 0) {
+          points.push({ t: ts[i] * 1000, v: v * fxToUSD });
+        }
       }
       if (points.length) return points;
     } catch {}
