@@ -260,6 +260,8 @@ tbody tr:hover { background: var(--panel-2); }
 .modal-card h3 { margin: 0 0 16px; }
 .modal-card form { display: flex; flex-direction: column; gap: 12px; }
 .modal-card label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: var(--muted); }
+.cash-mode .row-cost,
+.cash-mode .row-currency { display: none; }
 .symbol-field { position: relative; }
 .suggestions {
   list-style: none;
