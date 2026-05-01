@@ -961,10 +961,28 @@ function searchLocalAsianDB(query) {
   return out;
 }
 
+function searchCashCurrencies(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const out = [];
+  for (const [code, name] of SUPPORTED_CURRENCIES) {
+    if (code.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
+      out.push({
+        symbol: code,
+        name,
+        asset_type: "cash",
+        exchange: "Currency",
+      });
+      if (out.length >= 10) break;
+    }
+  }
+  return out;
+}
+
 async function searchSymbols(query, type) {
   if (!query) return [];
   if (type === "crypto") return searchCryptoSymbols(query);
-  if (type === "cash") return [];
+  if (type === "cash") return searchCashCurrencies(query);
   // For CJK queries, hit the bundled DB first (instant, reliable). Yahoo's
   // search index is largely English-only and frequently returns nothing
   // when queried in Chinese/Japanese/Korean — using it as a primary source
