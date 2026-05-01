@@ -237,7 +237,14 @@ async function fetchStockPrice(symbol) {
 }
 
 async function getPrice(symbol, type) {
-  if (type === "cash") return 1;
+  if (type === "cash") {
+    // For cash, "price" is the FX rate from the holding's currency to USD,
+    // so quantity (in that currency) * rate = USD value. 1 TWD ≠ 1 USD.
+    const code = (symbol || "USD").toUpperCase();
+    if (code === "USD") return 1;
+    const rate = await getFxRate(code, "USD");
+    return rate ?? 1;
+  }
   const key = `${type}:${symbol.toUpperCase()}`;
   const cached = priceCache.get(key);
   const now = Date.now();
@@ -527,12 +534,23 @@ async function fetchHistory(symbol, type, range) {
 
 // Build a portfolio time series at daily granularity. For each day in the
 // union of all holdings' history timestamps, compute sum(qty * forward-filled
-// price). Cash is constant at 1 USD. All math is in USD.
+// price). Cash uses the current FX rate to USD (we don't track historical FX
+// for cash). All math is in USD.
 async function computePortfolioSeries(holdings, range) {
   const cutoff = rangeCutoffMs(range);
   const histories = await Promise.all(
     holdings.map((h) => h.asset_type === "cash" ? Promise.resolve(null) : fetchHistory(h.symbol, h.asset_type, range))
   );
+
+  // Resolve each cash holding's USD rate ahead of the alignment loop so we
+  // don't need to make the .map async.
+  const cashRates = await Promise.all(holdings.map(async (h) => {
+    if (h.asset_type !== "cash") return null;
+    const code = (h.symbol || "USD").toUpperCase();
+    if (code === "USD") return 1;
+    const rate = await getFxRate(code, "USD");
+    return rate ?? 1;
+  }));
 
   // Build union of timestamps (rounded to UTC midnight to align stocks across exchanges).
   const dayMs = 24 * 3600 * 1000;
@@ -546,7 +564,7 @@ async function computePortfolioSeries(holdings, range) {
 
   // Forward-fill each holding to the unified day grid.
   const aligned = holdings.map((h, i) => {
-    if (h.asset_type === "cash") return sortedTs.map(() => 1);
+    if (h.asset_type === "cash") return sortedTs.map(() => cashRates[i]);
     const hist = histories[i];
     if (!hist || !hist.length) return null;
     const out = new Array(sortedTs.length).fill(null);
