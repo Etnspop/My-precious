@@ -303,9 +303,11 @@ function renderRow(h) {
   const gainClass = h.gain >= 0 ? "pos" : "neg";
   const sign = h.gain >= 0 ? "+" : "";
   const qtyDisplay = fmt(h.quantity, { digits: 6 }).replace(/\.?0+$/, "");
+  const nativeName = lookupNativeName(h.symbol);
+  const subline = nativeName || h.note;
   return `
     <tr data-id="${escapeHtml(h.id)}">
-      <td><strong>${escapeHtml(h.symbol)}</strong>${h.note ? `<div style="color:var(--muted);font-size:0.78rem">${escapeHtml(h.note)}</div>` : ""}</td>
+      <td><strong>${escapeHtml(h.symbol)}</strong>${subline ? `<div style="color:var(--muted);font-size:0.78rem">${escapeHtml(subline)}</div>` : ""}</td>
       <td><span class="tag ${escapeHtml(h.asset_type)}">${escapeHtml(h.asset_type)}</span></td>
       <td class="num">${qtyDisplay}</td>
       <td class="num">${h.cost_basis ? fmtMoney(h.cost_basis) : "—"}</td>
@@ -317,6 +319,20 @@ function renderRow(h) {
         <button class="btn icon danger" data-action="delete">✕</button>
       </td>
     </tr>`;
+}
+
+// Lookup the native-language display name for a known Asian symbol.
+// Built lazily on first call because ASIAN_STOCKS_DB is defined later.
+let _symbolNameMap = null;
+function lookupNativeName(symbol) {
+  if (!symbol) return null;
+  if (!_symbolNameMap) {
+    _symbolNameMap = new Map();
+    if (typeof ASIAN_STOCKS_DB !== "undefined") {
+      for (const s of ASIAN_STOCKS_DB) _symbolNameMap.set(s.symbol.toUpperCase(), s.names[0]);
+    }
+  }
+  return _symbolNameMap.get(String(symbol).toUpperCase()) || null;
 }
 
 function renderBreakdown(breakdown, total) {
