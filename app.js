@@ -521,23 +521,33 @@ async function computePortfolioSeries(holdings, range) {
       }
       out[j] = last;
     }
+    // Backward-fill leading nulls with the holding's earliest available
+    // price. Without this, days before the holding's history starts would
+    // contribute 0 to the portfolio total — and because different holdings
+    // have different earliest dates, the chart would start near $0 and
+    // jump up as each holding's data arrived.
+    const firstIdx = out.findIndex((v) => v !== null);
+    if (firstIdx > 0) {
+      const firstVal = out[firstIdx];
+      for (let j = 0; j < firstIdx; j++) out[j] = firstVal;
+    }
     return out;
   });
 
+  // Keep only days where every holding (with any history at all) has a
+  // value, so partial-coverage days don't drag the line down.
   const series = [];
   for (let j = 0; j < sortedTs.length; j++) {
     let total = 0;
-    let allMissing = true;
+    let anyMissing = false;
     for (let i = 0; i < holdings.length; i++) {
       const a = aligned[i];
-      if (!a) continue;
+      if (!a) continue; // holding has no history at all — silently skip
       const price = a[j];
-      if (price !== null) {
-        total += holdings[i].quantity * price;
-        allMissing = false;
-      }
+      if (price === null) { anyMissing = true; break; }
+      total += holdings[i].quantity * price;
     }
-    if (!allMissing) series.push({ t: sortedTs[j], v: total });
+    if (!anyMissing && total > 0) series.push({ t: sortedTs[j], v: total });
   }
   return series;
 }
