@@ -281,7 +281,46 @@ async function fetchTwsePrice(symbol) {
   return null;
 }
 
+// TWSE's own real-time quote endpoint — the one their website uses to
+// stream prices. Returns immediately with the latest tick (or yesterday's
+// close out of hours), avoiding the slow walk through Yahoo + proxies that
+// often returns nothing for Taiwan stocks anyway.
+async function fetchTwseRealtimePrice(symbol) {
+  const m = String(symbol || "").toUpperCase().match(/^(\d{4,6})\.TW$/);
+  if (!m) return null;
+  const stockNo = m[1];
+  // Probe both TSE main board and TPEx OTC; mis.twse will return one or the other.
+  for (const ex of ["tse", "otc"]) {
+    const target = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${ex}_${stockNo}.tw&json=1&_=${Date.now()}`;
+    const fetchers = [() => tfetch(target), ...CORS_PROXIES.map((p) => () => tfetch(p(target)))];
+    for (const get of fetchers) {
+      try {
+        const r = await get();
+        if (!r.ok) continue;
+        const text = await r.text();
+        let data; try { data = JSON.parse(text); } catch { continue; }
+        const item = data?.msgArray?.[0];
+        if (!item) continue;
+        // 'z' is the last traded price; if "-" (market closed), fall back to 'y' (yesterday close).
+        let twd = parseFloat(item.z);
+        if (!isFinite(twd) || twd <= 0) twd = parseFloat(item.y);
+        if (!isFinite(twd) || twd <= 0) continue;
+        const rate = await getFxRate("TWD", "USD");
+        if (rate === null) return null;
+        return twd * rate;
+      } catch {}
+    }
+  }
+  return null;
+}
+
 async function fetchStockPrice(symbol) {
+  // For Taiwan listings, TWSE's own real-time API is faster and more
+  // reliable than Yahoo + the public proxies. Try it first; on failure,
+  // walk the Yahoo / Stooq chain and finally TWSE STOCK_DAY.
+  if (/\.TW$/i.test(symbol)) {
+    try { const p = await fetchTwseRealtimePrice(symbol); if (p !== null) return p; } catch {}
+  }
   // 1) Direct Yahoo (works in some browsers/regions/times)
   try { const p = await fetchYahooPrice(symbol, null); if (p !== null) return p; } catch {}
   // 2) Direct Stooq
@@ -291,7 +330,7 @@ async function fetchStockPrice(symbol) {
     try { const p = await fetchYahooPrice(symbol, proxy); if (p !== null) return p; } catch {}
     try { const p = await fetchStooqPrice(symbol, proxy); if (p !== null) return p; } catch {}
   }
-  // 4) TWSE-direct for Taiwan listings — works when Yahoo / proxies all fail.
+  // 4) TWSE STOCK_DAY (slower fallback when realtime + the above all fail).
   if (/\.TW$/i.test(symbol)) {
     try { const p = await fetchTwsePrice(symbol); if (p !== null) return p; } catch {}
   }
