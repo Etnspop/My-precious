@@ -223,6 +223,42 @@ async function fetchStooqPrice(symbol, viaProxy) {
   return !isNaN(close) && close > 0 ? close : null;
 }
 
+// TWSE-direct fallback for Taiwan stocks (xxxx.TW). Uses the public
+// STOCK_DAY OpenAPI endpoint (no key, CORS-friendly, returned as JSON) and
+// pulls the most recent closing price. Useful when Yahoo's chart endpoint
+// or the CORS proxies aren't returning Taiwan listings.
+async function fetchTwsePrice(symbol) {
+  const m = String(symbol || "").toUpperCase().match(/^(\d{4,6})\.TW$/);
+  if (!m) return null;
+  const stockNo = m[1];
+  try {
+    const r = await tfetch(
+      `https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY?response=json&date=&stockNo=${stockNo}`
+    );
+    if (!r.ok) return null;
+    const body = await r.json();
+    // The response sometimes comes back as the raw array of monthly rows
+    // and sometimes wrapped under a "data" key. Handle both.
+    const rows = Array.isArray(body) ? body
+      : Array.isArray(body?.data) ? body.data : [];
+    if (!rows.length) return null;
+    const last = rows[rows.length - 1];
+    let twd = NaN;
+    if (Array.isArray(last)) {
+      // Legacy format: [date, volume, amount, open, high, low, close, ...]
+      twd = parseFloat(String(last[6]).replace(/,/g, ""));
+    } else if (last && typeof last === "object") {
+      const v = last.ClosingPrice ?? last.Close ?? last["收盤價"];
+      if (v != null) twd = parseFloat(String(v).replace(/,/g, ""));
+    }
+    if (!isFinite(twd) || twd <= 0) return null;
+    const rate = await getFxRate("TWD", "USD");
+    if (rate === null) return null;
+    return twd * rate;
+  } catch {}
+  return null;
+}
+
 async function fetchStockPrice(symbol) {
   // 1) Direct Yahoo (works in some browsers/regions/times)
   try { const p = await fetchYahooPrice(symbol, null); if (p !== null) return p; } catch {}
@@ -232,6 +268,10 @@ async function fetchStockPrice(symbol) {
   for (const proxy of CORS_PROXIES) {
     try { const p = await fetchYahooPrice(symbol, proxy); if (p !== null) return p; } catch {}
     try { const p = await fetchStooqPrice(symbol, proxy); if (p !== null) return p; } catch {}
+  }
+  // 4) TWSE-direct for Taiwan listings — works when Yahoo / proxies all fail.
+  if (/\.TW$/i.test(symbol)) {
+    try { const p = await fetchTwsePrice(symbol); if (p !== null) return p; } catch {}
   }
   return null;
 }
