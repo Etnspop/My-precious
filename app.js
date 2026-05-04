@@ -223,39 +223,61 @@ async function fetchStooqPrice(symbol, viaProxy) {
   return !isNaN(close) && close > 0 ? close : null;
 }
 
-// TWSE-direct fallback for Taiwan stocks (xxxx.TW). Uses the public
-// STOCK_DAY OpenAPI endpoint (no key, CORS-friendly, returned as JSON) and
-// pulls the most recent closing price. Useful when Yahoo's chart endpoint
-// or the CORS proxies aren't returning Taiwan listings.
+// TWSE-direct fallback for Taiwan stocks (xxxx.TW). Tries two TWSE
+// endpoints (the new OpenAPI + the legacy STOCK_DAY) both directly and
+// through every CORS proxy, since at least one of them blocks browser
+// requests at any given time. Returns the most recent closing price
+// converted from TWD to USD via the existing FX cache.
+function parseTwsePrice(body) {
+  // Format A: array of objects (OpenAPI)
+  if (Array.isArray(body) && body.length) {
+    const last = body[body.length - 1];
+    const v = last?.ClosingPrice ?? last?.Close ?? last?.["收盤價"];
+    const n = parseFloat(String(v ?? "").replace(/,/g, ""));
+    if (isFinite(n) && n > 0) return n;
+  }
+  // Format B: { data: [[..., close, ...], ...], fields: [...] } (legacy)
+  if (body?.data && Array.isArray(body.data) && body.data.length) {
+    const rows = body.data;
+    const last = rows[rows.length - 1];
+    const fields = body.fields || [];
+    let idx = fields.findIndex((f) => /收盤|Close|ClosingPrice/i.test(String(f)));
+    if (idx < 0) idx = 6; // standard column ordering: date, vol, amt, open, high, low, close
+    if (Array.isArray(last) && last[idx] != null) {
+      const n = parseFloat(String(last[idx]).replace(/,/g, ""));
+      if (isFinite(n) && n > 0) return n;
+    }
+  }
+  return null;
+}
+
 async function fetchTwsePrice(symbol) {
   const m = String(symbol || "").toUpperCase().match(/^(\d{4,6})\.TW$/);
   if (!m) return null;
   const stockNo = m[1];
-  try {
-    const r = await tfetch(
-      `https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY?response=json&date=&stockNo=${stockNo}`
-    );
-    if (!r.ok) return null;
-    const body = await r.json();
-    // The response sometimes comes back as the raw array of monthly rows
-    // and sometimes wrapped under a "data" key. Handle both.
-    const rows = Array.isArray(body) ? body
-      : Array.isArray(body?.data) ? body.data : [];
-    if (!rows.length) return null;
-    const last = rows[rows.length - 1];
-    let twd = NaN;
-    if (Array.isArray(last)) {
-      // Legacy format: [date, volume, amount, open, high, low, close, ...]
-      twd = parseFloat(String(last[6]).replace(/,/g, ""));
-    } else if (last && typeof last === "object") {
-      const v = last.ClosingPrice ?? last.Close ?? last["收盤價"];
-      if (v != null) twd = parseFloat(String(v).replace(/,/g, ""));
-    }
-    if (!isFinite(twd) || twd <= 0) return null;
-    const rate = await getFxRate("TWD", "USD");
-    if (rate === null) return null;
-    return twd * rate;
-  } catch {}
+  const targets = [
+    `https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY?response=json&date=&stockNo=${stockNo}`,
+    `https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date=&stockNo=${stockNo}`,
+  ];
+  const fetchers = [];
+  for (const url of targets) {
+    fetchers.push(() => tfetch(url));
+    for (const proxy of CORS_PROXIES) fetchers.push(() => tfetch(proxy(url)));
+  }
+  for (const get of fetchers) {
+    try {
+      const r = await get();
+      if (!r.ok) continue;
+      const text = await r.text();
+      let body;
+      try { body = JSON.parse(text); } catch { continue; }
+      const twd = parseTwsePrice(body);
+      if (twd === null) continue;
+      const rate = await getFxRate("TWD", "USD");
+      if (rate === null) return null;
+      return twd * rate;
+    } catch {}
+  }
   return null;
 }
 
